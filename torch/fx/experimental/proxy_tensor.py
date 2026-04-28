@@ -61,6 +61,19 @@ from torch._subclasses.fake_tensor import (
     maybe_get_fake_mode,
     unset_fake_temporarily,
 )
+
+
+_has_cpp_fake_tensor = hasattr(torch._C, "_is_fake_tensor")
+
+
+def is_fake(x: object) -> bool:
+    if _is_fake_python(x):
+        return True
+    if _has_cpp_fake_tensor and isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
+        return True
+    return False
+
+
 from torch._subclasses.functional_tensor import FunctionalTensor
 from torch._subclasses.meta_utils import is_sparse_any
 from torch.fx import GraphModule, Proxy, Tracer
@@ -700,6 +713,7 @@ def snapshot_fake(val: Tensor, include_real: bool = False) -> Tensor | None:
     if is_fake_tensor(val):
         return fast_detach(maybe_get_fake_mode(val), val, include_real)
     else:
+        # C++ fake tensors are plain Tensors — detach is sufficient
         return val.detach()
 
 
@@ -736,6 +750,11 @@ def extract_val(val: _ExtractValType, include_real: bool = False) -> _ExtractVal
         return {k: extract_val(v) for k, v in val.items()}
     elif isinstance(val, Tensor):
         if not val.is_sparse:
+            if _has_cpp_fake_tensor and torch._C._is_cpp_fake_tensor_mode_active():
+                return torch.empty_strided(  # revist this
+                    val.shape, val.stride(), device=val.device, dtype=val.dtype
+                )
+
             # NB: Kinda hacky, but we should try to get val as the metadata
             # everywhere
             # TODO: This doesn't properly track storages.  A more robust
