@@ -2599,8 +2599,7 @@ def device_hint(tensor) -> "str":
         and tensor.device.type != "meta"
     ):
         return tensor.device.type
-    else:
-        return "cuda"  # default to cuda
+    return "cuda"  # default to cuda
 
 
 def calc_conv_nd_return_shape(

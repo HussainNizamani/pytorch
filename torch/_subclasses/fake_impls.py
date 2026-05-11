@@ -651,7 +651,10 @@ def _unique(
         # Without symints/symfloats, cannot handle this
         raise DynamicOutputShapeException(func)
 
-    nnz = arg.unique_consecutive_memo if unique_consecutive else arg.unique_memo
+    if unique_consecutive:
+        nnz = getattr(arg, "unique_consecutive_memo", None)
+    else:
+        nnz = getattr(arg, "unique_memo", None)
 
     # Do not use a memo for unique_dim
     if dim is not None or nnz is None:
@@ -695,7 +698,9 @@ def _unique(
         # pyrefly: ignore[no-matching-overload]
         ret = [arg.new_empty(*arg.shape[:dim], nnz, *arg.shape[dim + 1 :])]
 
-    return_if_dim_and_cpu = dim is not None and arg.fake_device == torch.device("cpu")
+    return_if_dim_and_cpu = dim is not None and _get_fake_device(arg) == torch.device(
+        "cpu"
+    )
     if return_inverse or return_if_dim_and_cpu:
         inverse = arg.new_empty(
             arg.shape if dim is None else (arg.shape[dim],), dtype=torch.int64
@@ -1335,7 +1340,8 @@ def nonzero(fake_mode: FakeTensorMode, func: OpOverload, arg: FakeTensor) -> Fak
         # Without symints/symfloats, cannot handle this
         raise DynamicOutputShapeException(func)
 
-    if (nnz := arg.nonzero_memo) is None:
+    nnz = getattr(arg, "nonzero_memo", None)
+    if nnz is None:
         # Avoid importing sympy at a module level
         from torch.fx.experimental.symbolic_shapes import (
             _constrain_range_for_size,
