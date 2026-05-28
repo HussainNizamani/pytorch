@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 import itertools
 import math
@@ -40,8 +41,12 @@ from torch._subclasses.fake_tensor import (
     DataDependentOutputException,
     DynamicOutputShapeException,
     FakeTensor,
+<<<<<<< HEAD
     in_kernel_invocation_manager,
     is_fake_tensor,
+=======
+    in_kernel_invocation_manager as _py_in_kernel_invocation_manager,
+>>>>>>> 16383ed4b16 (fix @register_op_impl logic)
     run_fallback_kernel,
     UnsupportedOperatorException,
 )
@@ -330,6 +335,8 @@ def _record_function_enter(
         real_handle = func(name, args)
     # Create a meta tensor with the same properties as the real handle
     meta_handle = torch.empty_like(real_handle, device="meta")
+    if isinstance(fake_mode, CppFakeModeShim):
+        return meta_handle
     # Wrap it as a FakeTensor
     return FakeTensor(fake_mode, meta_handle, torch.device("cpu"))
 
@@ -1640,6 +1647,8 @@ def run_and_return_new_tensor_of_input_device(
 
     if out is new_kwargs["input"]:
         return out  # copy_
+    if isinstance(fake_mode, CppFakeModeShim):
+        return out
     return FakeTensor(fake_mode, out, out_device)
 
 
@@ -2033,9 +2042,9 @@ def index_put_impl(
         func, args=args, kwargs=kwargs, normalize_to_only_use_kwargs=True
     )
     values = new_kwargs["values"]
-    self_device = new_kwargs["input"].fake_device
+    self_device = _get_fake_device(new_kwargs["input"])
     torch._check(
-        self_device == values.fake_device or (values.ndim == 0 and values.numel() == 1),
+        self_device == _get_fake_device(values) or (values.ndim == 0 and values.numel() == 1),
         lambda: f"Mismatching {func} device between self ({self_device}) and values ({values.device})",
     )
 
@@ -2105,12 +2114,17 @@ def conv(
     # Internal passes such as Inductor freezing may run fake propagation over
     # folded convs that do not need to match eager's public input checks.
     if (
+<<<<<<< HEAD
         func
         in (
             aten.convolution.default,
             aten._convolution.default,
             aten._convolution.deprecated,
         )
+=======
+        func is aten.convolution.default
+        and _get_fake_device(input_).type == "cuda"
+>>>>>>> 759aba32924 (fix @register_op_impl logic)
         and input_.dtype != weight.dtype
         and not input_.is_mkldnn
         and not fake_mode.allow_non_fake_inputs
@@ -2119,6 +2133,7 @@ def conv(
             f"Input type ({input_.dtype}) and weight type "
             f"({weight.dtype}) should be the same"
         )
+<<<<<<< HEAD
     for name, value in new_kwargs.items():
         if isinstance(value, torch.Tensor):
             fake_value = expect_fake_tensor(name, value)
@@ -2128,6 +2143,9 @@ def conv(
                     f"{name} is on {fake_value.fake_device}, different from "
                     f"other tensors on {device}"
                 )
+=======
+    device = _get_fake_device(input_)
+>>>>>>> 16383ed4b16 (fix @register_op_impl logic)
     # need to re-enable mode so the tensors report fake device
     with fake_mode:
         # if the input is unsqueezed in Convolution.cpp we get segfault
@@ -2191,6 +2209,8 @@ def conv(
                 t = t.unsqueeze(2).to(memory_format=mem_fmt).squeeze(2)
             else:
                 t = t.to(memory_format=mem_fmt)
+        if isinstance(fake_mode, CppFakeModeShim):
+            return t
         return FakeTensor(fake_mode, t, device)
 
     with in_kernel_invocation_manager(fake_mode):
@@ -2461,27 +2481,33 @@ def make_fast_binary_impl(
         if definitely_contiguous:
             # do contiguous
             count_label("fast is_contiguous")
+            out = torch.empty(
+                final_shape,
+                dtype=common_dtype,
+                device="meta",
+                memory_format=torch.contiguous_format,
+            )
+            if isinstance(mode, CppFakeModeShim):
+                return out
             return FakeTensor(
                 mode,
-                torch.empty(
-                    final_shape,
-                    dtype=common_dtype,
-                    device="meta",
-                    memory_format=torch.contiguous_format,
-                ),
+                out,
                 device=common_device,
             )
         if definitely_channels_last:
             count_label("fast channels_last")
             # do channels last
+            out = torch.empty(
+                final_shape,
+                dtype=common_dtype,
+                device="meta",
+                memory_format=torch.channels_last,
+            )
+            if isinstance(mode, CppFakeModeShim):
+                return out
             return FakeTensor(
                 mode,
-                torch.empty(
-                    final_shape,
-                    dtype=common_dtype,
-                    device="meta",
-                    memory_format=torch.channels_last,
-                ),
+                out,
                 device=common_device,
             )
 
@@ -2506,7 +2532,12 @@ def fast_detach(
         )
     with no_python_dispatcher(), in_kernel_invocation_manager(fake_mode):
         out = torch.ops.aten.detach.default(x)
+<<<<<<< HEAD
     dispatch_keys = x.dispatch_keys
+=======
+    if isinstance(fake_mode, CppFakeModeShim):
+        return out
+>>>>>>> 16383ed4b16 (fix @register_op_impl logic)
     if include_real:
         return FakeTensor(
             fake_mode,
