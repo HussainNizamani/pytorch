@@ -66,14 +66,6 @@ from torch._subclasses.fake_tensor import (
 _has_cpp_fake_tensor = hasattr(torch._C, "_is_fake_tensor")
 
 
-def is_fake(x: object) -> bool:
-    if _is_fake_python(x):
-        return True
-    if _has_cpp_fake_tensor and isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
-        return True
-    return False
-
-
 from torch._subclasses.functional_tensor import FunctionalTensor
 from torch._subclasses.meta_utils import is_sparse_any
 from torch.fx import GraphModule, Proxy, Tracer
