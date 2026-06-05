@@ -156,13 +156,11 @@ except ImportError:
     pass
 
 
-def cpp_fake_belongs_to_mode(
-    t: torch.Tensor, cpp_fake_mode: object | None
-) -> bool:
-    """Check if a C++ fake tensor belongs to the given C++ FakeTensorMode."""
-    if cpp_fake_mode is None:
-        return False
-    return cpp_fake_mode.owns_tensor(t)
+def belongs_to_active_fake_tensor_mode(value: object, tx: Any) -> bool:
+    if tx.cpp_fake_mode is not None:
+        return torch._C.maybe_get_fake_mode(value) == tx.cpp_fake_mode
+    else:
+        return maybe_get_fake_mode(value) is tx.fake_mode
 
 
 T = TypeVar("T")
@@ -4096,7 +4094,7 @@ def _get_fake_value_impl(
     try:
         if (
             torch._dynamo.config.use_cpp_fake_tensor
-            and torch._C._does_cpp_fake_tensor_mode_exist()
+            and torch._C._get_active_cpp_fake_tensor_mode() is not None
         ):
             log.debug("get_fake_value: using C++ fake tensor mode for %s", node.target)
             fake_mode_ctx = contextlib.nullcontext()
