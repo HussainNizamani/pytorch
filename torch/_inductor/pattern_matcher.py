@@ -66,6 +66,7 @@ from torch._subclasses.fake_tensor import (
     is_fake_tensor,
     maybe_get_fake_constant,
     unset_fake_temporarily,
+    CppFakeTensorMode
 )
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch.fx.experimental.symbolic_shapes import guard_or_false, statically_known_true
@@ -292,7 +293,7 @@ class Match:
         """
         from torch._inductor.virtualized import NullHandler, V
 
-        if torch._C._get_active_cpp_fake_tensor_mode() is not None:
+        if CppFakeTensorMode._get_active_cpp_fake_tensor_mode() is not None:
             context = fake_mode_context(V.fake_mode)
         elif not isinstance(V.fake_mode, NullHandler) or (V.fake_mode is None):
             context = V.fake_mode

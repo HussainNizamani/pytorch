@@ -151,16 +151,14 @@ try:
 
         # pyrefly: ignore [implicit-any]
         NP_TO_TNP_MODULE = {}
-    from torch._subclasses.fake_tensor import is_fake
+    from torch._subclasses.fake_tensor import (
+        CppFakeTensorMode,
+        FakeTensor,
+        is_fake,
+        maybe_get_fake_mode,
+    )
 except ImportError:
     pass
-
-
-def belongs_to_active_fake_tensor_mode(value: object, tx: Any) -> bool:
-    if tx.cpp_fake_mode is not None:
-        return torch._C.maybe_get_fake_mode(value) == tx.cpp_fake_mode
-    else:
-        return maybe_get_fake_mode(value) is tx.fake_mode
 
 
 T = TypeVar("T")
@@ -4094,7 +4092,7 @@ def _get_fake_value_impl(
     try:
         if (
             torch._dynamo.config.use_cpp_fake_tensor
-            and torch._C._get_active_cpp_fake_tensor_mode() is not None
+            and CppFakeTensorMode._get_active_cpp_fake_tensor_mode() is not None
         ):
             log.debug("get_fake_value: using C++ fake tensor mode for %s", node.target)
             fake_mode_ctx = contextlib.nullcontext()

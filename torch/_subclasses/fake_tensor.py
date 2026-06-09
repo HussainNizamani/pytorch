@@ -302,7 +302,7 @@ def is_fake(x: object) -> TypeGuard[Tensor]:
     return False
 
 
-def maybe_get_fake_mode(t: object) -> FakeTensorMode | None:
+def maybe_get_fake_mode(t: object) -> FakeTensorMode | CppFakeTensorMode | None:
     from torch._subclasses.functional_tensor import FunctionalTensor
 
     if isinstance(t, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
@@ -334,6 +334,8 @@ def maybe_get_fake_mode(t: object) -> FakeTensorMode | None:
     elif isinstance(t, Tensor) and is_functorch_wrapped_tensor(t):
         unwrapped = torch._C._functorch.get_unwrapped(t)
         return maybe_get_fake_mode(unwrapped)
+    elif isinstance(t, Tensor):
+        return torch._C.maybe_get_fake_mode(t)
     return None
 
 

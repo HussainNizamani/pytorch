@@ -1,7 +1,11 @@
 from typing import Any
 
 import torch.fx
+<<<<<<< HEAD
 from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode, is_fake_tensor
+=======
+from torch._subclasses.fake_tensor import CppFakeTensorMode, FakeTensorMode, is_fake
+>>>>>>> 6cbc0f3881e (dynamo, inductor, make_fx flags + unify cppfaketensormode)
 from torch.fx import Node
 from torch.fx._compatibility import compatibility
 from torch.fx.experimental.proxy_tensor import py_sym_types, snapshot_fake
@@ -117,7 +121,9 @@ class FakeTensorProp(torch.fx.Interpreter):
             for a in args
             if isinstance(a, FakeTensor)  # noqa: ISINSTANCE_FAKE_TENSOR
         ]
-        with self._mode:
+        cpp_fake_mode = CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
+
+        with cpp_fake_mode.activated() if cpp_fake_mode is not None else self._mode:
             try:
                 return super().run(*args)
             finally:
