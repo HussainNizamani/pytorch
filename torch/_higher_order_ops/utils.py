@@ -441,7 +441,7 @@ def has_potential_input_alias_or_mutation(gm, inputs, pre_dispatch=False):
 
 
 def _collect_fake_inputs(inputs):
-    from torch._subclasses.fake_tensor import FakeTensor
+    from torch._subclasses.fake_tensor import FakeTensor, is_fake
 
     # Get the example values of the inputs.
     inputs_fake: list[FakeTensor | torch.Tensor | int] = []
