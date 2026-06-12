@@ -3037,6 +3037,14 @@ class OutputGraph(OutputGraphCommon):
                 # a lot of fake_tensor ownership assumptions and runs afoul of detect_fake_mode
                 self.tracing_context.fake_mode = backend_fake_mode
 
+                if self.cpp_fake_mode is not None:
+                    self.cpp_fake_mode = (
+                        CppFakeTensorMode.create_cpp_fake_tensor_mode(
+                            backend_fake_mode.fake_tensor_converter,
+                            backend_fake_mode.shape_env,
+                        )
+                    )
+
             example_inputs = self.example_inputs()
 
             # Restore placeholder metadata mutated by
