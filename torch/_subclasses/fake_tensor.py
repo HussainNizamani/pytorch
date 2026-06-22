@@ -339,11 +339,113 @@ def maybe_get_fake_mode(t: object) -> FakeTensorMode | CppFakeTensorMode | None:
     return None
 
 
+class CppFakeTensorMode:
+    def __init__(
+        self,
+        *,
+        shape_env: Any = None,
+        fake_tensor_converter: Any = None,
+        allow_fallback_kernels: bool = True,
+    ) -> None:
+        self.shape_env = shape_env
+        self.fake_tensor_converter = fake_tensor_converter
+        self.allow_fallback_kernels = allow_fallback_kernels
+        self.allow_scalar_outputs = False
+        self.in_kernel_invocation = False
+        # The C++ fallback always converts non-fake inputs to fake, so it
+        # effectively always allows them. The attribute exists so callers that
+        # toggle it on the Python mode (e.g. fake_tensor_prop's
+        # force_allow_non_fake_inputs path, via mock.patch.object) work uniformly.
+        self.allow_non_fake_inputs = False
+        # Saved Fake-key TLS state for each active `with self:` (supports nesting).
+        self._activation_stack: list[bool] = []
+
+    @classmethod
+    def create_cpp_fake_tensor_mode(
+        cls, fake_tensor_converter: Any, shape_env: Any = None
+    ) -> CppFakeTensorMode:
+        """Create the C++ FakeTensorMode from a converter and ShapeEnv.
+        """
+        self = cls(shape_env=shape_env, fake_tensor_converter=fake_tensor_converter)
+        # self is stored on the C++ mode so _get_active_cpp_fake_tensor_mode and
+        # op_impl handlers (PyInterpreter.cpp) observe the same single identity.
+        torch._C._create_cpp_fake_tensor_mode(fake_tensor_converter, shape_env, self)
+        return self
+
+    @classmethod
+    def _get_active_cpp_fake_tensor_mode(cls) -> CppFakeTensorMode | None:
+        return torch._C._get_active_cpp_fake_tensor_mode()
+
+    # `with self:` activates the Fake dispatch key for the duration of the block,
+    # mirroring `with python_fake_mode:`. This matters for callers like MetaProxy
+    # (torch/fx/proxy.py) that run an op under `with fake_mode:` to fake-propagate
+    # it: factory sub-ops (e.g. empty_strided) have no fake tensor input and only
+    # route to Fake when the key is in the TLS include set. The prior state is
+    # saved/restored (rather than calling the force-on/force-off activate()/
+    # deactivate() directly) so this nests correctly: a no-op for op_impl handlers,
+    # which already run with the key active inside the fallback.
+    def __enter__(self) -> CppFakeTensorMode:
+        self._activation_stack.append(
+            torch._C._dispatch_tls_is_dispatch_key_included(torch._C.DispatchKey.Fake)
+        )
+        self.activate()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        if not self._activation_stack.pop():
+            self.deactivate()
+        return None
+
+    def activate(self) -> None:
+        torch._C._activate_cpp_fake_tensor_mode()
+
+    def deactivate(self) -> None:
+        torch._C._deactivate_cpp_fake_tensor_mode()
+
+    @contextlib.contextmanager
+    def activated(self) -> Generator[CppFakeTensorMode, None, None]:
+        self.activate()
+        try:
+            yield self
+        finally:
+            self.deactivate()
+
+    def set_allow_fallback_kernels(self, allow: bool) -> None:
+        # Read by op_impl handlers (e.g. workaround_stride_incorrect_op).
+        self.allow_fallback_kernels = allow
+
+    def from_tensor(
+        self,
+        tensor: Tensor,
+        *,
+        static_shapes: bool | None = None,
+        source: Source | None = None,
+        symbolic_context: SymbolicContext | None = None,
+        trace: bool = True,
+    ) -> Tensor:
+        return torch._C._cpp_fake_from_tensor(
+            tensor, source=source, symbolic_context=symbolic_context
+        )
+
+    # need for op_impl
+    @contextlib.contextmanager
+    def in_kernel_invocation_manager(self) -> Generator[None, None, None]:
+        prev = self.in_kernel_invocation
+        self.in_kernel_invocation = True
+        with torch._C._PreserveDispatchKeyGuard():
+            torch._C._set_meta_in_tls_dispatch_include(True)
+            torch._C._dispatch_tls_set_dispatch_key_excluded(
+                torch._C.DispatchKey.Fake, True
+            )
+            try:
+                yield
+            finally:
+                self.in_kernel_invocation = prev
+
 def maybe_get_real_tensor(x: object) -> Tensor | None:
     if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         return x.real_tensor
     return None
-
 
 def maybe_get_fake_device(x: object) -> torch.device | None:
     if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR

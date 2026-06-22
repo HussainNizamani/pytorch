@@ -32,6 +32,7 @@ from torch._higher_order_ops.triton_kernel_wrap import triton_kernel_wrapper_mut
 from torch._library.fake_class_registry import FakeScriptObject
 from torch._library.opaque_object import is_custom_class_obj
 from torch._library.utils import get_layout_constraint_tag
+from torch._subclasses.fake_tensor import is_fake
 from torch._prims_common import (
     canonicalize_dim,
     canonicalize_dims,
