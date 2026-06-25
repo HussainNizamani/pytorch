@@ -4396,12 +4396,12 @@ class TestAutograd(TestCase):
                 torch.set_default_device(prev if had_default_device else None)
 
         def context_fn():
-            return contextlib.nullcontext(), apply_device("cuda")
+            return contextlib.nullcontext(), torch.device("cuda")
 
         def fn(x):
             return x.sin().cos()
 
-        with apply_device("cuda"):
+        with torch.device("cuda"):
             a = torch.tensor(1.0, requires_grad=True)
             out = torch.utils.checkpoint.checkpoint(
                 fn, a, context_fn=context_fn, use_reentrant=False
