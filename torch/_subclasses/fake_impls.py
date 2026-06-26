@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import functools
 import itertools
 import math
@@ -1354,9 +1353,7 @@ def local_scalar_dense(
 ) -> int | float | bool | torch.SymInt | torch.SymFloat | torch.SymBool:
     from torch._subclasses.fake_tensor import FakeTensor
 
-    is_py_fake = isinstance(arg, FakeTensor)
-
-    if is_py_fake:
+    if isinstance(arg, FakeTensor):
         if (r := arg.item_memo) is not None:
             return r
 
@@ -1374,7 +1371,7 @@ def local_scalar_dense(
     else:
         raise NotImplementedError(f"local_scalar_dense/item NYI for {arg.dtype}")
 
-    if is_py_fake:
+    if isinstance(arg, FakeTensor):
         arg.item_memo = r
     return r
 

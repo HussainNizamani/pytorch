@@ -869,6 +869,7 @@ class OutputGraph(OutputGraphCommon):
         self.traced_code = self.tracing_context.traced_code
         self.dynamo_compile_id: CompileId | None = CompileContext.current_compile_id()
 
+        self.cpp_fake_mode: CppFakeTensorMode | None
         if config.use_cpp_fake_tensor:
             self.cpp_fake_mode = CppFakeTensorMode.create_cpp_fake_tensor_mode(
                 fake_mode.fake_tensor_converter, shape_env
