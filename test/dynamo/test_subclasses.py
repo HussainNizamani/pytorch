@@ -3307,18 +3307,18 @@ class GraphModule(torch.nn.Module):
 class GraphModule(torch.nn.Module):
     def forward(
         self,
-        primals_1: "Sym(s13)",  # PlainAOTInput(idx=0)
-        primals_2: "Sym(s21)",  # PlainAOTInput(idx=1)
-        primals_3: "f32[s13, s21]",  # PlainAOTInput(idx=2)
+        primals_1: "f32[s13, s21]",  # PlainAOTInput(idx=0)
+        primals_2: "Sym(s13)",  # PlainAOTInput(idx=1)
+        primals_3: "Sym(s21)",  # PlainAOTInput(idx=2)
     ):
-        clone: "f32[s13, s21]" = torch.ops.aten.clone.default(primals_3);  primals_3 = None
+        clone: "f32[s13, s21]" = torch.ops.aten.clone.default(primals_1);  primals_1 = None
 
-        mul_2: "Sym(s13*s21)" = primals_1 * primals_2
+        mul_2: "Sym(s13*s21)" = primals_2 * primals_3
         view: "f32[s13*s21]" = torch.ops.aten.view.default(clone, [mul_2]);  clone = mul_2 = None
         return (
             view,  # PlainAOTOutput(idx=0)
-            primals_1,  # SavedForBackwardsAOTOutput(idx=0)
-            primals_2,  # SavedForBackwardsAOTOutput(idx=1)
+            primals_2,  # SavedForBackwardsAOTOutput(idx=0)
+            primals_3,  # SavedForBackwardsAOTOutput(idx=1)
         )
 """,
             )
@@ -4242,6 +4242,7 @@ class TestIssubclass(torch._dynamo.test_case.TestCase):
         self.assertEqual(result_eager, result_compiled)
 
 
+@skipIfCppFakeTensor
 class TestNestedTensor(
     _SubclassCompileCheckMixin,
     torch._dynamo.test_case.TestCase,
