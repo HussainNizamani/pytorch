@@ -2740,8 +2740,7 @@ def calc_conv_nd_return_shape(
     from torch._subclasses.fake_tensor import maybe_get_fake_device
     from torch.fx.experimental.symbolic_shapes import sym_and, sym_or
 
-    fake_device = maybe_get_fake_device(input_tensor)
-    device = fake_device if fake_device is not None else input_tensor.device
+    device = maybe_get_fake_device(input_tensor) or input_tensor.device
 
     # ROCm reports device.type as "cuda"; keep the existing NVIDIA CUDA behavior
     # unchanged and only apply the new check to HIP.

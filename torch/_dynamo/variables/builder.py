@@ -71,12 +71,15 @@ from torch._library.opaque_object import (
 )
 from torch._ops import HigherOrderOperator, OpOverload, OpOverloadPacket
 from torch._subclasses.fake_tensor import (
+    maybe_get_fake_mode,
+    is_fake_tensor,
     CppFakeTensorMode,
     FakeTensor,
     FakeTensorMode,
     is_fake,
     is_fake_tensor,
     maybe_get_fake_mode,
+    is_fake_tensor,
 )
 from torch._subclasses.meta_utils import is_sparse_any, safe_grad
 from torch._utils_internal import justknobs_check
@@ -3511,8 +3514,8 @@ class VariableBuilder:
         fake_tensor_value = example_value
         # type: ignore[attr-defined]
         if (
-            isinstance(fake_tensor_value, FakeTensor)
-            and fake_tensor_value.fake_mode is not self.tx.fake_mode
+            is_fake_tensor(fake_tensor_value)
+            and maybe_get_fake_mode(fake_tensor_value) is not self.tx.fake_mode
         ):
             raise AssertionError(
                 f"fake mode ({fake_tensor_value.fake_mode}) from fake tensor metadata doesn't match mode"
@@ -3609,8 +3612,8 @@ class VariableBuilder:
             fake_tensor_value = example_value
             # type: ignore[attr-defined]
             if (
-                isinstance(fake_tensor_value, FakeTensor)
-                and fake_tensor_value.fake_mode is not self.tx.fake_mode
+                is_fake_tensor(fake_tensor_value)
+                and maybe_get_fake_mode(fake_tensor_value) is not self.tx.fake_mode
             ):
                 raise AssertionError(
                     f"fake mode ({fake_tensor_value.fake_mode}) from fake tensor metadata doesn't match mode"

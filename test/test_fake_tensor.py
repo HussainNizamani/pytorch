@@ -231,7 +231,7 @@ class FakeTensorTest(TestCase):
         with FakeTensorMode(allow_non_fake_inputs=True, shape_env=ShapeEnv()):
             out = torch.sparse.spdiags(torch.randn(2, 3), torch.tensor([0, -1]), (2, 3))
 
-        self.assertTrue(is_fake(out))
+        self.assertTrue(is_fake_tensor(out))
         self.assertEqual(out.layout, torch.sparse_coo)
         self.assertEqual(out.shape, (2, 3))
 
@@ -426,7 +426,7 @@ class FakeTensorTest(TestCase):
         with FakeTensorMode(allow_non_fake_inputs=True):
             result = torch.ops._torch_testing.fake_tensor_parameter_subclass(weight)
 
-        self.assertTrue(is_fake(result))
+        self.assertTrue(is_fake_tensor(result))
         self.assertEqual(result.shape, weight.shape)
         self.assertEqual(result.device, torch.device("cpu"))
 
@@ -466,7 +466,7 @@ class FakeTensorTest(TestCase):
                 weight
             )
 
-        self.assertTrue(is_fake(result))
+        self.assertTrue(is_fake_tensor(result))
         self.assertEqual(result.shape, weight.shape)
         self.assertEqual(result.device, torch.device("cpu"))
         self.assertEqual(
@@ -514,7 +514,7 @@ class FakeTensorTest(TestCase):
 
         reconstructed = param_cls(param.to("meta"), **kwargs)
 
-        self.assertTrue(is_fake(reconstructed))
+        self.assertTrue(is_fake_tensor(reconstructed))
         self.assertIsInstance(reconstructed, torch.nn.Parameter)
         self.assertEqual(reconstructed.requires_grad, param.requires_grad)
         self.assertEqual(reconstructed.fake_device, fake_device)
@@ -562,7 +562,7 @@ class FakeTensorTest(TestCase):
 
         reconstructed = type(param)(param.to("meta"), **kwargs)
 
-        self.assertTrue(is_fake(reconstructed))
+        self.assertTrue(is_fake_tensor(reconstructed))
         self.assertIsInstance(reconstructed, torch.nn.Parameter)
         self.assertEqual(reconstructed.requires_grad, param.requires_grad)
         self.assertEqual(reconstructed.fake_device, fake_device)
@@ -581,7 +581,7 @@ class FakeTensorTest(TestCase):
             param = FlatParameter(data, requires_grad=True)
         self.assertIsInstance(param, FlatParameter)
         self.assertIsInstance(param, torch.nn.Parameter)
-        self.assertTrue(is_fake(param))
+        self.assertTrue(is_fake_tensor(param))
 
     def test_non_parameter_grad(self):
         mode = FakeTensorMode()
@@ -603,8 +603,8 @@ class FakeTensorTest(TestCase):
         fake_t = mode.from_tensor(t, source=source, symbolic_context=symbolic_context)
 
         self.assertIsInstance(fake_t.grad, TwoTensor)
-        self.assertTrue(is_fake(fake_t.grad.a))
-        self.assertTrue(is_fake(fake_t.grad.b))
+        self.assertTrue(is_fake_tensor(fake_t.grad.a))
+        self.assertTrue(is_fake_tensor(fake_t.grad.b))
 
     @unittest.skipIf(
         TEST_WITH_TORCHDYNAMO, "isinstance check for FakeTensor won't work with compile"
@@ -1102,7 +1102,7 @@ class FakeTensorTest(TestCase):
         fake_b1 = get_unwrapped(fake_b2)
         self.assertTrue(is_batchedtensor(fake_b1))
         fake_tensor = get_unwrapped(fake_b1)
-        self.assertTrue(is_fake(fake_tensor))
+        self.assertTrue(is_fake_tensor(fake_tensor))
 
     def test_constructor(self):
         with FakeTensorMode():
@@ -1131,7 +1131,7 @@ class FakeTensorTest(TestCase):
             gm = make_fx(f, tracing_mode="symbolic")(torch.tensor(4))
             target = torch.ops.fake_tensor_issue_163196.moo.default
             (node,) = [n for n in gm.graph.nodes if n.target is target]
-            self.assertTrue(is_fake(node.meta["val"]))
+            self.assertTrue(is_fake_tensor(node.meta["val"]))
             self.assertEqual(node.meta["val"].shape, (3,))
             self.assertEqual(node.meta["val"].device.type, "cpu")
 
@@ -1154,7 +1154,7 @@ class FakeTensorTest(TestCase):
             with FakeTensorMode():
                 out = torch.ops.fake_tensor_issue_163196_device_arg.moo(4, device="cpu")
 
-            self.assertTrue(is_fake(out))
+            self.assertTrue(is_fake_tensor(out))
             self.assertEqual(out.device.type, "cpu")
             self.assertTrue(torch.device("meta") in seen_devices)
 
@@ -1178,7 +1178,7 @@ class FakeTensorTest(TestCase):
             gm = make_fx(f, tracing_mode="symbolic")(torch.tensor(4))
             target = torch.ops.fake_tensor_issue_163196_non_device_arg.moo.default
             (node,) = [n for n in gm.graph.nodes if n.target is target]
-            self.assertTrue(is_fake(node.meta["val"]))
+            self.assertTrue(is_fake_tensor(node.meta["val"]))
             self.assertEqual(node.meta["val"].shape, (3,))
             self.assertEqual(node.meta["val"].device.type, "cpu")
 
@@ -1953,20 +1953,20 @@ def forward(self, x_1):
                 cuda_indices = torch.zeros(2, 3, dtype=torch.long, device="cuda")
                 cuda_out = torch.nn.functional.embedding(cuda_indices, cuda_weight)
 
-        self.assertTrue(is_fake(out))
+        self.assertTrue(is_fake_tensor(out))
         self.assertEqual(out.shape, (2, 3, 8))
         self.assertEqual(out.dtype, weight.dtype)
         self.assertEqual(out.device, weight.device)
         self.assertEqual(_get_fake_device(out), _get_fake_device(weight))
 
-        self.assertTrue(is_fake(meta_weight_out))
+        self.assertTrue(is_fake_tensor(meta_weight_out))
         self.assertEqual(meta_weight_out.shape, (4, 5, 8))
         self.assertEqual(meta_weight_out.dtype, meta_weight.dtype)
         self.assertEqual(meta_weight_out.device, meta_weight.device)
         self.assertEqual(_get_fake_device(meta_weight_out), _get_fake_device(meta_weight))
 
         if run_cuda_cases:
-            self.assertTrue(is_fake(cuda_out))
+            self.assertTrue(is_fake_tensor(cuda_out))
             self.assertEqual(cuda_out.shape, (2, 3, 8))
             self.assertEqual(cuda_out.device, cuda_weight.device)
             self.assertEqual(_get_fake_device(cuda_out), _get_fake_device(cuda_weight))
@@ -2225,7 +2225,7 @@ def forward(self, x_1):
                 dual = fwAD.make_dual(x, y)
                 r = f(dual)
 
-        self.assertTrue(is_fake(r))
+        self.assertTrue(is_fake_tensor(r))
         self.assertEqual(r.size(), [3])
 
     @parametrize("reverse", [False, True])
@@ -2238,8 +2238,8 @@ def forward(self, x_1):
             init = torch.randn((3, 7), device="cpu")
             r = scan(add, init, x, dim=1, reverse=reverse)
 
-        self.assertTrue(is_fake(r[0]))
-        self.assertTrue(is_fake(r[1]))
+        self.assertTrue(is_fake_tensor(r[0]))
+        self.assertTrue(is_fake_tensor(r[1]))
 
     def test_fast_div_int_to_float(self):
         mode = FakeTensorMode()
@@ -2810,7 +2810,7 @@ class FakeTensorConverterTest(TestCase):
             y = torch.empty(2, 2, device="cpu")
 
         out = x + y
-        self.assertEqual(mode, out.fake_mode)
+        self.assertEqual(mode, get_fake_mode(out))
         self.assertTrue(is_fake_tensor(out))
         self.assertEqual(out.device.type, "cpu")
 
@@ -2973,7 +2973,7 @@ class FakeTensorOperatorInvariants(TestCase):
     def test_tensor_new(self):
         with FakeTensorMode():
             x = torch.Tensor([1, 2, 3])
-        self.assertTrue(is_fake(x))
+        self.assertTrue(is_fake_tensor(x))
 
     def test_like_ops(self):
         for schema in self.get_all_aten_schemas():

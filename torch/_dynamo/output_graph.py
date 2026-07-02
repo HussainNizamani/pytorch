@@ -70,7 +70,7 @@ from torch._guards import (
 )
 from torch._library.fake_class_registry import FakeScriptObject
 from torch._library.opaque_object import is_custom_class
-from torch._subclasses.fake_tensor import CppFakeTensorMode, FakeTensor
+from torch._subclasses.fake_tensor import CppFakeTensorMode, FakeTensor, is_fake_tensor
 from torch._utils_internal import signpost_event
 from torch.export.dynamic_shapes import _ConstraintTarget
 from torch.fx._lazy_graph_module import _make_graph_module  # type: ignore[attr-defined]

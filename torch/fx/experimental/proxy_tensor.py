@@ -53,6 +53,8 @@ from torch._logging import trace_structured
 from torch._ops import HigherOrderOperator, OpOverload
 from torch._subclasses.fake_impls import fast_detach
 from torch._subclasses.fake_tensor import (
+    maybe_get_fake_mode,
+    is_fake_tensor,
     cpp_fake_tensor_mode_active,
     CppFakeTensorMode,
     FakeTensor,

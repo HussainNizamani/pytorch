@@ -1,11 +1,11 @@
 from typing import Any
 
 import torch.fx
-<<<<<<< HEAD
-from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode, is_fake_tensor
-=======
-from torch._subclasses.fake_tensor import CppFakeTensorMode, FakeTensorMode, is_fake
->>>>>>> 6cbc0f3881e (dynamo, inductor, make_fx flags + unify cppfaketensormode)
+from torch._subclasses.fake_tensor import (
+    CppFakeTensorMode,
+    FakeTensorMode,
+    is_fake_tensor,
+)
 from torch.fx import Node
 from torch.fx._compatibility import compatibility
 from torch.fx.experimental.proxy_tensor import py_sym_types, snapshot_fake

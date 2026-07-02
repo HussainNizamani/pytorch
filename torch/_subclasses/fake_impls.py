@@ -4,6 +4,7 @@ import functools
 import itertools
 import math
 import operator
+import os
 import sys
 from functools import reduce
 from typing import Any, cast as typing_cast, TYPE_CHECKING, TypeVar
@@ -41,10 +42,11 @@ from torch._subclasses.fake_tensor import (
     DataDependentOutputException,
     DynamicOutputShapeException,
     FakeTensor,
-    in_kernel_invocation_manager,
+    in_kernel_invocation_manager as _py_in_kernel_invocation_manager,
     is_fake_tensor,
     run_fallback_kernel,
     UnsupportedOperatorException,
+    maybe_get_fake_device
 )
 from torch.fx.operator_schemas import _normalize_function_or_error
 from torch.utils._stats import count_label
@@ -75,6 +77,12 @@ __all__ = [
 op_implementations_dict = {}
 # pyrefly: ignore [implicit-any]
 op_implementations_checks = []
+
+def in_kernel_invocation_manager(fake_mode):  # type: ignore[no-untyped-def]
+    if isinstance(fake_mode, CppFakeTensorMode):
+        return fake_mode.in_kernel_invocation_manager()
+    return _py_in_kernel_invocation_manager(fake_mode)
+
 
 aten = torch._ops.ops.aten
 _MKLDNN_DISPATCH_KEYS = torch._C.DispatchKeySet(
@@ -261,43 +269,6 @@ def _deregister_op_impl(op: OpOverload) -> None:
             break
 
 
-def _fake_dispatch_op_key(op: OpOverload) -> str:
-    # Canonical "name.overload" form, matching c10::toString(OperatorName) on
-    # the C++ side (see fakeFallback).
-    return op._name
-
-
-def _cpp_fake_dispatch_op_keys() -> tuple[list[str], list[str], list[str]]:
-    """get decomp table + prims keys + op_impl dict keys
-
-    The op_impl keys cover only the exact-identity (dict) tier of
-    op_implementations_checks.
-    """
-    from torch._decomp import decomposition_table, meta_table
-
-    decomp_keys = [
-        _fake_dispatch_op_key(op)
-        for op in decomposition_table
-        if isinstance(op, OpOverload) and op not in meta_table
-    ]
-
-    prim_meta_keys = []
-    for packet_name in torch.ops.prims:
-        packet = getattr(torch.ops.prims, packet_name)
-        for overload in packet.overloads():
-            op = getattr(packet, overload)
-            if hasattr(op, "prim_meta_impl"):
-                prim_meta_keys.append(_fake_dispatch_op_key(op))
-
-    op_impl_keys = [
-        _fake_dispatch_op_key(op)
-        for op in op_implementations_dict
-        if isinstance(op, OpOverload)
-    ]
-
-    return decomp_keys, prim_meta_keys, op_impl_keys
-
-
 @register_op_impl(op_implementations_dict.__contains__)
 def dispatch_to_op_implementations_dict(
     fake_mode: FakeTensorMode, func: OpOverload, *args: Any, **kwargs: Any
@@ -477,10 +448,10 @@ def _spdiags_static_offsets(offsets: FakeTensorLike) -> list[int] | None:
     if constant is None:
         constant = getattr(offsets, "real_tensor", None)
     cpp_mode = None
-    if constant is None and is_fake(offsets) and not isinstance(offsets, FakeTensor):
+    if constant is None and is_fake(offsets) and not isinstance(offsets, FakeTensor):  # noqa-isinstance-fake: op impl
         cpp_mode = CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
         constant = torch._C._get_fake_constant(offsets)
-    if isinstance(constant, FakeTensor):
+    if isinstance(constant, FakeTensor):  # noqa-isinstance-fake: op impl
         return None
     if constant is None or constant.device.type != "cpu":
         return None
@@ -752,7 +723,7 @@ def _unique(
         # pyrefly: ignore[no-matching-overload]
         ret = [arg.new_empty(*arg.shape[:dim], nnz, *arg.shape[dim + 1 :])]
 
-    return_if_dim_and_cpu = dim is not None and _get_fake_device(arg) == torch.device(
+    return_if_dim_and_cpu = dim is not None and maybe_get_fake_device(arg) == torch.device(
         "cpu"
     )
     if return_inverse or return_if_dim_and_cpu:
@@ -1353,7 +1324,7 @@ def local_scalar_dense(
 ) -> int | float | bool | torch.SymInt | torch.SymFloat | torch.SymBool:
     from torch._subclasses.fake_tensor import FakeTensor
 
-    if isinstance(arg, FakeTensor):
+    if isinstance(arg, FakeTensor):  # noqa-isinstance-fake: memo
         if (r := arg.item_memo) is not None:
             return r
 
@@ -1371,7 +1342,7 @@ def local_scalar_dense(
     else:
         raise NotImplementedError(f"local_scalar_dense/item NYI for {arg.dtype}")
 
-    if isinstance(arg, FakeTensor):
+    if isinstance(arg, FakeTensor):  # noqa-isinstance-fake: memo
         arg.item_memo = r
     return r
 
@@ -2090,9 +2061,9 @@ def index_put_impl(
         func, args=args, kwargs=kwargs, normalize_to_only_use_kwargs=True
     )
     values = new_kwargs["values"]
-    self_device = _get_fake_device(new_kwargs["input"])
+    self_device = maybe_get_fake_device(new_kwargs["input"])
     torch._check(
-        self_device == _get_fake_device(values) or (values.ndim == 0 and values.numel() == 1),
+        self_device == maybe_get_fake_device(values) or (values.ndim == 0 and values.numel() == 1),
         lambda: f"Mismatching {func} device between self ({self_device}) and values ({values.device})",
     )
 

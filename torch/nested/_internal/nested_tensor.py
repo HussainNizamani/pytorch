@@ -14,7 +14,7 @@ _tensor_symint_registry = WeakTensorKeyDictionary()
 
 
 def get_tensor_symint(tensor, *, coeff=1):
-    from torch._subclasses.fake_tensor import FakeTensor
+    from torch._subclasses.fake_tensor import FakeTensor, is_fake_tensor
     from torch._subclasses.functional_tensor import mb_unwrap_functional_tensor
 
     # NB: Only FakeTensor is associated with a memo
@@ -333,7 +333,7 @@ class NestedTensor(torch.Tensor):
 
     @staticmethod
     def __tensor_unflatten__(inner_tensors: Dict, meta, outer_size, outer_stride):
-        from torch._subclasses.fake_tensor import FakeTensor
+        from torch._subclasses.fake_tensor import FakeTensor, is_fake_tensor
 
         # inner tensors: _values, _offsets, [_lengths], [_min_seqlen], [_max_seqlen]
         if not (len(inner_tensors) >= 2 and len(inner_tensors) <= 5):

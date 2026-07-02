@@ -156,6 +156,7 @@ try:
         FakeTensor,
         is_fake,
         maybe_get_fake_mode,
+        is_fake_tensor,
     )
 except ImportError:
     pass

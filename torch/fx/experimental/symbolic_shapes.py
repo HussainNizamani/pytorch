@@ -1337,12 +1337,10 @@ def _free_unbacked_symbols_with_path(
     ):
         from torch._subclasses.fake_tensor import is_fake_tensor, maybe_get_real_tensor
 
-        if isinstance(a, FakeTensor): # noqa: ISINSTANCE_FAKE_TENSOR
-            match_tensor(a, a.real_tensor)
-        elif torch._C._is_fake_tensor(a):
-            # C++ FakeTensor; propagate_real_tensors is not implemented in C++
-            # yet, so there is no real_tensor to match against.
-            match_tensor(a)
+        if is_fake_tensor(a):
+            # maybe_get_real_tensor is None for C++ fakes (propagate_real_tensors
+            # is not implemented in C++); match_tensor handles a None real tensor.
+            match_tensor(a, maybe_get_real_tensor(a))
         else:
             raise AssertionError(f"Expected FakeTensor, got {type(a)}")
     elif (

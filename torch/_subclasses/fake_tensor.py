@@ -263,14 +263,37 @@ def is_fake_tensor(x: object) -> TypeGuard[Tensor]:
     return isinstance(x, Tensor) and torch._C._is_fake_tensor(x)
 
 
+def maybe_get_real_tensor(x: object) -> Tensor | None:
+    if isinstance(x, FakeTensor):  # noqa-isinstance-fake: python faketensor internals
+        return x.real_tensor
+    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
+        return torch._C._get_fake_real_tensor(x)
+    return None
+
+
+def maybe_get_fake_device(x: object) -> torch.device | None:
+    if isinstance(x, FakeTensor):  # noqa-isinstance-fake: python faketensor internals
+        return x.fake_device
+    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
+        try:
+            return torch._C._fake_tensor_device(x)
+        except RuntimeError:
+            return None
+    return None
+
+
+def maybe_get_fake_constant(x: object) -> Tensor | None:
+    if isinstance(x, FakeTensor):  # noqa-isinstance-fake: python faketensor internals
+        return x.constant
+    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
+        return torch._C._get_fake_constant(x)
+    return None
+
+
 def is_fake(x: object) -> TypeGuard[Tensor]:
     from torch._subclasses.functional_tensor import FunctionalTensor
 
     if is_fake_tensor(x):
-        return True
-    # C++ FakeTensors are plain torch.Tensor with the Fake dispatch key, so they
-    # are not instances of the Python FakeTensor subclass.
-    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
         return True
     if is_traceable_wrapper_subclass(x):
         attrs, _ = type(x).__tensor_flatten__(x)

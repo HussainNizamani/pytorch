@@ -1528,6 +1528,8 @@ def detect_fake_mode(
           have to be flattened)
     """
     from torch._subclasses.fake_tensor import (
+        maybe_get_fake_mode,
+        is_fake_tensor,
         cpp_fake_tensor_mode_active,
         CppFakeTensorMode,
         FakeTensor,
