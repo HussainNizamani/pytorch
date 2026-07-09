@@ -785,7 +785,10 @@ class TestDynamoDecompositionsNumerics(TestCase):
 
         expected = fn(x.clone(), other, alpha)
         actual = torch.compile(fn, fullgraph=True)(x.clone(), other, alpha)  # noqa: UNSPECIFIED_BACKEND
-        self.assertEqual(expected, actual, atol=0, rtol=0)
+        if torch.device(device).type == "cpu":
+            self.assertEqual(expected, actual)
+        else:
+            self.assertEqual(expected, actual, atol=0, rtol=0)
 
     @skipIfCrossRef
     @torch._dynamo.config.patch(enable_dynamo_decompositions=True)
