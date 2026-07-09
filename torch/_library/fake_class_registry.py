@@ -256,9 +256,14 @@ def maybe_to_fake_obj(
         opaque_info = get_opaque_obj_info(x_type)
         if opaque_info is None:
             raise AssertionError(f"opaque_info for type {x_type} must not be None")
+        from torch._custom_class_base import _is_custom_class_base_constructing
+
+        opaque_base_constructing = _is_custom_class_base_constructing(x)
         for attr_name in opaque_info.members:
             with _disable_current_modes():
                 if not hasattr(x, attr_name):
+                    if opaque_base_constructing:
+                        continue
                     raise TypeError(
                         f"Opaque object of type '{type_name}' was specified to have member "
                         f"'{attr_name}', but this doesn't actually exist in the object."
