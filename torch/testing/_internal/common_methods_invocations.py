@@ -17683,7 +17683,10 @@ op_db: list[OpInfo] = [
                # FX failed to normalize op - add the op to the op_skip list.
                DecorateInfo(unittest.expectedFailure, 'TestNormalizeOperators', 'test_normalize_operator_exhaustive'),
                # object has no attribute max_pool2d_with_indices_backward (It's not available on torch -- so expected)
-               DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit')
+               DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit'),
+               # torchf-xpu-ops/issue/3600
+               DecorateInfo(unittest.expectedFailure, 'TestDecomp', 'test_quick', device_type='xpu'),
+               DecorateInfo(unittest.expectedFailure, 'TestDecomp', 'test_comprehensive', device_type='xpu')
            )),
     OpInfo('nn.functional.max_pool3d',
            aten_name='max_pool3d',
@@ -18869,11 +18872,11 @@ op_db: list[OpInfo] = [
                # Could not run 'aten::narrow_copy.out' with arguments from the 'CUDA' backend
                # torch-xpu-ops/issues/2309
                DecorateInfo(unittest.expectedFailure, 'TestMeta', 'test_meta_outplace',
-                            device_type=('cuda', 'xpu'),
+                            device_type=('cuda', 'xpu')),
                DecorateInfo(unittest.expectedFailure, 'TestMeta', 'test_dispatch_meta_outplace',
                             device_type=('cuda', 'xpu')),
                DecorateInfo(unittest.expectedFailure, 'TestMeta', 'test_dispatch_symbolic_meta_outplace',
-                            device_type=('cuda', 'xpu'),
+                            device_type=('cuda', 'xpu')),
                DecorateInfo(unittest.expectedFailure, 'TestMeta', 'test_dispatch_symbolic_meta_outplace_all_strides'),
            )),
     OpInfo('view_copy',
