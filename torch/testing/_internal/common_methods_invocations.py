@@ -18816,6 +18816,11 @@ op_db: list[OpInfo] = [
                    dtypes=(torch.float32,),
                    device_type="cuda",
                ),
+               # sample_inputs_mode passes `dim` positionally, so test_reduction_ops_reduce
+               # skips every sample and trivially passes without invoking aten::mode; the
+               # blanket MPS expectedFailure below then flags it as an unexpected success.
+               DecorateInfo(unittest.skip("mode not implemented on MPS"),
+                            'TestCommon', 'test_reduction_ops_reduce', device_type='mps'),
                # The operator 'aten::mode' is not currently implemented for the MPS device
                DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps'),
            ),
