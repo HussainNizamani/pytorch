@@ -264,7 +264,7 @@ def is_fake_tensor(x: object) -> TypeGuard[Tensor]:
 
 
 def maybe_get_real_tensor(x: object) -> Tensor | None:
-    if isinstance(x, FakeTensor):  # noqa-isinstance-fake: python faketensor internals
+    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         return x.real_tensor
     if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
         return torch._C._get_fake_real_tensor(x)
@@ -272,7 +272,7 @@ def maybe_get_real_tensor(x: object) -> Tensor | None:
 
 
 def maybe_get_fake_device(x: object) -> torch.device | None:
-    if isinstance(x, FakeTensor):  # noqa-isinstance-fake: python faketensor internals
+    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         return x.fake_device
     if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
         try:
@@ -283,7 +283,8 @@ def maybe_get_fake_device(x: object) -> torch.device | None:
 
 
 def maybe_get_fake_constant(x: object) -> Tensor | None:
-    if isinstance(x, FakeTensor):  # noqa-isinstance-fake: python faketensor internals
+    # The constant a fake tensor was created from, for Python or C++ fakes.
+    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         return x.constant
     if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
         return torch._C._get_fake_constant(x)
@@ -466,22 +467,11 @@ class CppFakeTensorMode:
             finally:
                 self.in_kernel_invocation = prev
 
-def maybe_get_real_tensor(x: object) -> Tensor | None:
-    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
-        return x.real_tensor
-    return None
-
-def maybe_get_fake_device(x: object) -> torch.device | None:
-    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
-        return x.fake_device
-    return None
-
-
-def maybe_get_fake_constant(x: object) -> Tensor | None:
-    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
-        return x.constant
-    return None
-
+def cpp_fake_tensor_mode_active() -> bool:
+    return (
+        hasattr(torch._C, "_is_fake_tensor")
+        and CppFakeTensorMode._get_active_cpp_fake_tensor_mode() is not None
+    )
 
 @functools.cache
 def get_schema_info(func: OpOverload) -> torch._C._SchemaInfo:

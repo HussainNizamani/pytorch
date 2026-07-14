@@ -45,8 +45,8 @@ from torch._subclasses.fake_tensor import (
     MetadataMismatchError,
     unset_fake_temporarily,
     UnsupportedOperatorException,
+    maybe_get_fake_device,
 )
-from torch._subclasses.fake_impls import _get_fake_device
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch.fx.experimental.symbolic_shapes import (
     DimDynamic,
@@ -813,6 +813,7 @@ class FakeTensorTest(TestCase):
                     x, w, b, [1, 1], [1, 1], [1, 1], False, [0, 0], 1
                 )
 
+    @skipIfCppFakeTensor
     def test_conv_allows_unspecified_fake_device_index(self):
         with FakeTensorMode() as mode:
             x = FakeTensor(
@@ -1813,6 +1814,7 @@ def forward(self, x_1):
     # TODO: Support NJT.  There's also some funny business with dynamic shapes
     # which would need to be dealt with as well
     @expectedFailurePropagateRealTensors
+    @skipIfCppFakeTensor
     def test_jagged_fake_to_fake_preserved(self):
         from torch.nested._internal.nested_tensor import jagged_from_list
 
@@ -1957,19 +1959,19 @@ def forward(self, x_1):
         self.assertEqual(out.shape, (2, 3, 8))
         self.assertEqual(out.dtype, weight.dtype)
         self.assertEqual(out.device, weight.device)
-        self.assertEqual(_get_fake_device(out), _get_fake_device(weight))
+        self.assertEqual(maybe_get_fake_device(out), maybe_get_fake_device(weight))
 
         self.assertTrue(is_fake_tensor(meta_weight_out))
         self.assertEqual(meta_weight_out.shape, (4, 5, 8))
         self.assertEqual(meta_weight_out.dtype, meta_weight.dtype)
         self.assertEqual(meta_weight_out.device, meta_weight.device)
-        self.assertEqual(_get_fake_device(meta_weight_out), _get_fake_device(meta_weight))
+        self.assertEqual(maybe_get_fake_device(meta_weight_out), maybe_get_fake_device(meta_weight))
 
         if run_cuda_cases:
             self.assertTrue(is_fake_tensor(cuda_out))
             self.assertEqual(cuda_out.shape, (2, 3, 8))
             self.assertEqual(cuda_out.device, cuda_weight.device)
-            self.assertEqual(_get_fake_device(cuda_out), _get_fake_device(cuda_weight))
+            self.assertEqual(maybe_get_fake_device(cuda_out), maybe_get_fake_device(cuda_weight))
 
         if run_cuda_cases:
             with FakeTensorMode():
@@ -2672,6 +2674,7 @@ class FakeTensorConverterTest(TestCase):
         self.assertEqual(len(converter.tensor_memo), 0)
         self.assertEqual(len(converter.meta_converter.storage_memo), 0)
 
+    @skipIfCppFakeTensor
     def test_parameter_views_keep_full_storage(self):
         base = torch.arange(12, dtype=torch.float16)
         x = torch.nn.Parameter(base[:6].view(2, 3))
@@ -2697,6 +2700,7 @@ class FakeTensorConverterTest(TestCase):
             self.assertEqual(x_conv.real_tensor, x)
             self.assertEqual(y_conv.real_tensor, y)
 
+    @skipIfCppFakeTensor
     def test_parameter_views_keep_full_storage_symbolic_propagate_real(self):
         base = torch.arange(12, dtype=torch.float16)
         x = torch.nn.Parameter(base[:6].view(2, 3))
@@ -2720,6 +2724,7 @@ class FakeTensorConverterTest(TestCase):
         self.assertEqual(x_conv.real_tensor, x)
         self.assertEqual(y_conv.real_tensor, y)
 
+    @skipIfCppFakeTensor
     def test_strided_parameter_views_keep_real_storage_data(self):
         base = torch.arange(11, dtype=torch.float32)
         x = torch.nn.Parameter(base[::2])
@@ -3514,7 +3519,7 @@ class FakeTensorPropTest(TestCase):
                 y = torch.randn(10, 5)
                 mask = torch.randn(10) > 0
 
-                self.assertIsInstance(x, FakeTensor)
+                self.assertTrue(is_fake_tensor(x))
                 self.assertTrue(x.is_inference())
 
                 filtered_x = x[mask]

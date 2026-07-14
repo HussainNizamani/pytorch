@@ -2775,11 +2775,7 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
         _set_is_channels_last(compute_strides_like_channels_last_2d());
         _set_is_channels_last_3d(false);
         _set_is_non_overlapping_and_dense(
-<<<<<<< HEAD
             assume_contiguous || compute_is_non_overlapping_and_dense_dim4());
-=======
-            compute_is_non_overlapping_and_dense_dim4());
->>>>>>> 43ff29e0926 (revert tensor impl formatting changes)
         break;
       }
       case 5: {

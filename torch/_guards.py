@@ -1527,10 +1527,10 @@ def detect_fake_mode(
         - Fake mode associated with passed in tensors (inputs does not
           have to be flattened)
     """
+    import torch._dynamo.config as dynamo_config
     from torch._subclasses.fake_tensor import (
         maybe_get_fake_mode,
         is_fake_tensor,
-        cpp_fake_tensor_mode_active,
         CppFakeTensorMode,
         FakeTensor,
         FakeTensorMode,
@@ -1539,8 +1539,15 @@ def detect_fake_mode(
         maybe_get_fake_mode,
     )
 
-    if cpp_fake_tensor_mode_active():
-        return CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
+    active_cpp_fake_mode = CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
+    if active_cpp_fake_mode is not None:
+        return active_cpp_fake_mode
+
+    if dynamo_config.use_cpp_fake_tensor:
+        # Under CPP_FAKETENSOR=1, only a C++ FakeTensorMode is valid. If none is
+        # active, return None (matching the Python path) rather than creating one
+        # or falling back to a Python FakeTensorMode.
+        return None
 
     # If TracingContext has a fake_mode, use it authoritatively.
     # This is the case when Dynamo is driving compilation - any fake tensors

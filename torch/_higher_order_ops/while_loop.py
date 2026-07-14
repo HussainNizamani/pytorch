@@ -12,6 +12,7 @@ from torch._higher_order_ops.auto_functionalize import (
 )
 from torch._higher_order_ops.utils import (
     _check_alias_and_mutation,
+    _find_or_create_fake_mode,
     _maybe_run_with_interpreter,
     autograd_not_implemented,
     check_meta_consistency,
@@ -342,16 +343,6 @@ def while_loop_autograd(
     )
 
 
-def _find_or_create_fake_mode() -> FakeTensorMode:
-    from torch.fx.experimental.symbolic_shapes import ShapeEnv
-
-    fake_mode = torch._guards.detect_fake_mode()
-    if fake_mode is None:
-        fake_mode = FakeTensorMode(shape_env=ShapeEnv())
-
-    return fake_mode
-
-
 def _create_unbacked_symint(
     fake_mode: FakeTensorMode, ignore_fresh_unbacked_symbols: bool
 ) -> torch.SymInt:
@@ -606,14 +597,14 @@ def while_loop_fake_tensor_mode(
 
 
 @while_loop_op.py_impl(DispatchKey.Fake)
-def while_loop_fake_dispatch(
-    cond_fn, body_fn, carried_inputs, additional_inputs, stack_output=False
+def while_loop_cpp_fake_tensor_mode(
+    cond_fn,
+    body_fn,
+    carried_inputs,
+    additional_inputs,
+    stack_output=False,
+    mutated_arg_indices="",
 ):
-    if stack_output:
-        raise NotImplementedError(
-            "while_loop with stack_output=True requires symbolic shapes (ShapeEnv), "
-            "which is not supported under C++ fake tensor mode."
-        )
     fake_mode = _find_or_create_fake_mode()
     with fake_mode.shape_env.ignore_fresh_unbacked_symbols():
         body_outs = body_fn(*carried_inputs, *additional_inputs)
@@ -625,10 +616,27 @@ def while_loop_fake_dispatch(
             include_contiguity=False,
         )
 
-    # See NOTE [unspecialize int carry with unbacked symints]. Mirror the
-    # Python FakeTensorMode impl: int/SymInt carry outputs must become fresh
-    # unbacked symints bound to while_loop's output, otherwise Dynamo wraps
-    # them as constants and they fail to match the traced subgraph's symints.
+    if stack_output:
+        n_iter = _create_unbacked_symint(fake_mode, ignore_fresh_unbacked_symbols=False)
+        if not all(isinstance(x, torch.Tensor) for x in carried_inputs):
+            raise AssertionError(
+                f"all carried_inputs must be tensors for stack_output, got {[type(x) for x in carried_inputs]}"
+            )
+        fake_outputs = tuple(
+            out.clone()
+            .unsqueeze(0)
+            .repeat((n_iter,) + tuple(1 for _ in range(out.dim())))
+            for out in body_outs
+        )
+        return pytree.tree_map_only(
+            (int, torch.SymInt),
+            lambda _: _create_unbacked_symint(
+                fake_mode, ignore_fresh_unbacked_symbols=False
+            ),
+            fake_outputs,
+        )
+
+    # See NOTE [unspecialize int carry with unbacked symints]
     return pytree.tree_map_only(
         (int, torch.SymInt),
         lambda _: _create_unbacked_symint(
@@ -1045,7 +1053,7 @@ while_loop_stack_output_op.py_impl(FakeTensorMode)(
 )
 
 while_loop_stack_output_op.py_impl(DispatchKey.Fake)(
-    functools.partial(while_loop_fake_dispatch, stack_output=True)
+    functools.partial(while_loop_cpp_fake_tensor_mode, stack_output=True)
 )
 
 while_loop_stack_output_op.py_functionalize_impl(

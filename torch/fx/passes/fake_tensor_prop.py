@@ -5,6 +5,7 @@ from torch._subclasses.fake_tensor import (
     CppFakeTensorMode,
     FakeTensorMode,
     is_fake_tensor,
+    FakeTensor
 )
 from torch.fx import Node
 from torch.fx._compatibility import compatibility

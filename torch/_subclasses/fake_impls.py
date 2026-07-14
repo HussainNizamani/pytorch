@@ -4,7 +4,6 @@ import functools
 import itertools
 import math
 import operator
-import os
 import sys
 from functools import reduce
 from typing import Any, cast as typing_cast, TYPE_CHECKING, TypeVar
@@ -44,6 +43,7 @@ from torch._subclasses.fake_tensor import (
     FakeTensor,
     in_kernel_invocation_manager as _py_in_kernel_invocation_manager,
     is_fake_tensor,
+    is_fake,
     run_fallback_kernel,
     UnsupportedOperatorException,
     maybe_get_fake_device
@@ -448,10 +448,10 @@ def _spdiags_static_offsets(offsets: FakeTensorLike) -> list[int] | None:
     if constant is None:
         constant = getattr(offsets, "real_tensor", None)
     cpp_mode = None
-    if constant is None and is_fake(offsets) and not isinstance(offsets, FakeTensor):  # noqa-isinstance-fake: op impl
+    if constant is None and is_fake(offsets) and not isinstance(offsets, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         cpp_mode = CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
         constant = torch._C._get_fake_constant(offsets)
-    if isinstance(constant, FakeTensor):  # noqa-isinstance-fake: op impl
+    if isinstance(constant, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         return None
     if constant is None or constant.device.type != "cpu":
         return None
@@ -1324,7 +1324,7 @@ def local_scalar_dense(
 ) -> int | float | bool | torch.SymInt | torch.SymFloat | torch.SymBool:
     from torch._subclasses.fake_tensor import FakeTensor
 
-    if isinstance(arg, FakeTensor):  # noqa-isinstance-fake: memo
+    if isinstance(arg, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         if (r := arg.item_memo) is not None:
             return r
 
@@ -1342,7 +1342,7 @@ def local_scalar_dense(
     else:
         raise NotImplementedError(f"local_scalar_dense/item NYI for {arg.dtype}")
 
-    if isinstance(arg, FakeTensor):  # noqa-isinstance-fake: memo
+    if isinstance(arg, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         arg.item_memo = r
     return r
 
@@ -2119,8 +2119,8 @@ def conv(
         func, args=args, kwargs=kwargs, normalize_to_only_use_kwargs=True
     )
 
-    def expect_fake_tensor(name: str, value: object) -> FakeTensor:
-        if not isinstance(value, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
+    def expect_fake_tensor(name: str, value: object) -> torch.Tensor:
+        if not is_fake_tensor(value):
             raise AssertionError(
                 "Expected fake convolution tensor arguments to be FakeTensors, "
                 f"but {name} was {type(value).__name__}"
@@ -2129,7 +2129,7 @@ def conv(
 
     input_ = expect_fake_tensor("input", new_kwargs["input"])
     weight = expect_fake_tensor("weight", new_kwargs["weight"])
-    device = input_.fake_device
+    device = maybe_get_fake_device(input_)
     # Internal passes such as Inductor freezing may run fake propagation over
     # folded convs that do not need to match eager's public input checks.
     if (
@@ -2150,10 +2150,10 @@ def conv(
     for name, value in new_kwargs.items():
         if isinstance(value, torch.Tensor):
             fake_value = expect_fake_tensor(name, value)
-            if not _same_device_or_unspecified_index(fake_value.fake_device, device):
+            if not _same_device_or_unspecified_index(maybe_get_fake_device(fake_value), device):
                 raise RuntimeError(
                     "Expected all tensors to be on the same device, but got "
-                    f"{name} is on {fake_value.fake_device}, different from "
+                    f"{name} is on {maybe_get_fake_device(fake_value)}, different from "
                     f"other tensors on {device}"
                 )
     # need to re-enable mode so the tensors report fake device
@@ -2304,6 +2304,8 @@ def _pack_padded_sequence(
 def _fake_alias(fake_mode: FakeTensorMode, x: FakeTensor) -> FakeTensor:
     with no_python_dispatcher(), in_kernel_invocation_manager(fake_mode):
         out = aten.alias.default(x)
+    if isinstance(fake_mode, CppFakeTensorMode):
+        return out
     # Real MKLDNN alias is not public API, but compiler-generated alias nodes
     # must preserve fake MKLDNN layout state through tracing.
     return FakeTensor(fake_mode, out, x.device, dispatch_keys=x.dispatch_keys)
@@ -2311,9 +2313,9 @@ def _fake_alias(fake_mode: FakeTensorMode, x: FakeTensor) -> FakeTensor:
 
 @register_op_impl(aten.alias.default)
 def fake_alias(
-    fake_mode: FakeTensorMode, func: OpOverload, x: FakeTensor
-) -> FakeTensor | object:
-    if not isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
+    fake_mode: FakeTensorMode, func: OpOverload, x: Tensor
+) -> Tensor | object:
+    if not is_fake_tensor(x):
         return NotImplemented
     return _fake_alias(fake_mode, x)
 
@@ -2533,18 +2535,11 @@ def fast_detach(
     x: FakeTensor | torch.Tensor,
     include_real: bool = False,
 ) -> torch.Tensor:
-    if (
-        not isinstance(x, FakeTensor)  # noqa: ISINSTANCE_FAKE_TENSOR
-        or fake_mode is None
-    ):
-        raise AssertionError(
-            "type widening added for cpp faketensor but this is not used yet"
-        )
     with no_python_dispatcher(), in_kernel_invocation_manager(fake_mode):
         out = torch.ops.aten.detach.default(x)
-    dispatch_keys = x.dispatch_keys
     if isinstance(fake_mode, CppFakeTensorMode):
         return out
+    dispatch_keys = x.dispatch_keys
     if include_real:
         return FakeTensor(
             fake_mode,

@@ -372,15 +372,11 @@ def is_noncontiguous_supported(device):
 
 def handle_noncontiguous_outputs(input_tlist, output):
     device = None
-<<<<<<< HEAD
     from torch._subclasses.fake_tensor import (
         FakeTensor,
         is_fake_tensor,
         maybe_get_fake_device,
     )
-=======
-    from torch._subclasses.fake_tensor import FakeTensor, is_fake_tensor, maybe_get_fake_device
->>>>>>> ad7b0fac126 (decomp table changes + isinstance -> is_fake_tensor)
 
     for t in input_tlist:
         if is_fake_tensor(t):

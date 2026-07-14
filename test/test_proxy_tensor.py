@@ -56,6 +56,25 @@ if MAKE_FX_CPP_FAKE_TENSOR:
 else:
     make_fx = _real_make_fx
 
+# Mirror test_fake_tensor.py: under the C++ fake path, make bare FakeTensorMode()
+# construction build a CppFakeTensorMode so the suite exercises it end to end.
+if MAKE_FX_CPP_FAKE_TENSOR:
+    from torch._subclasses.fake_tensor import CppFakeTensorMode, FakeTensorConverter
+
+    def FakeTensorMode(
+        *,
+        shape_env=None,
+        allow_fallback_kernels=True,
+        allow_non_fake_inputs=False,
+        **kwargs,
+    ):
+        mode = CppFakeTensorMode.create_cpp_fake_tensor_mode(
+            FakeTensorConverter(), shape_env
+        )
+        mode.set_allow_fallback_kernels(allow_fallback_kernels)
+        mode.allow_non_fake_inputs = allow_non_fake_inputs
+        return mode
+
 from torch.utils._pytree import tree_map
 from torch.fx.passes.runtime_assert import insert_deferred_runtime_asserts
 from torch import nn

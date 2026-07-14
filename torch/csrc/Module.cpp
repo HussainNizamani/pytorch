@@ -16,12 +16,15 @@
 #include <ATen/DLConvertor.h>
 #include <ATen/ExpandUtils.h>
 #include <ATen/FakeTensorDispatchTables.h>
+#include <ATen/FunctionalTensorWrapper.h>
 #include <ATen/LegacyVmapMode.h>
 #include <ATen/LinalgBackend.h>
 
 #include <ATen/Parallel.h>
 #include <ATen/Utils.h>
 #include <ATen/dlpack.h>
+#include <ATen/functorch/BatchedTensorImpl.h>
+#include <ATen/functorch/TensorWrapper.h>
 #include <ATen/native/ConvUtils.h>
 #include <ATen/native/ForeachUtils.h>
 #include <ATen/native/Normalization.h>

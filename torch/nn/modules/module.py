@@ -970,12 +970,9 @@ class Module:
             p_should_use_swap_tensors = (
                 should_use_swap_tensors
                 or is_traceable_wrapper_subclass(param_applied)
-<<<<<<< HEAD
                 or isinstance(param, FakeTensor)  # noqa: ISINSTANCE_FAKE_TENSOR
-=======
-                or is_fake_tensor(param)
->>>>>>> ad7b0fac126 (decomp table changes + isinstance -> is_fake_tensor)
             )
+
 
             param_grad = param.grad
             if p_should_use_swap_tensors:

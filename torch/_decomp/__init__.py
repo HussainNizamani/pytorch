@@ -1,6 +1,5 @@
 # mypy: allow-untyped-defs
 import inspect
-import os
 import typing
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -43,8 +42,6 @@ global_decomposition_table: dict[str, dict[torch._ops.OperatorBase, Callable]] =
 decomposition_table = global_decomposition_table["post_autograd"]
 pre_autograd_decomposition_table = global_decomposition_table["pre_autograd"]
 meta_table = global_decomposition_table["meta"]
-
-CPP_FAKETENSOR = os.environ.get("CPP_FAKETENSOR", "0") == "1"
 
 
 def _should_decompose_because_unsafe_op(op: torch._ops.OperatorBase) -> bool:
