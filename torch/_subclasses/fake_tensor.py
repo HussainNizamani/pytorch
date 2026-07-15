@@ -263,34 +263,6 @@ def is_fake_tensor(x: object) -> TypeGuard[Tensor]:
     return isinstance(x, Tensor) and torch._C._is_fake_tensor(x)
 
 
-def maybe_get_real_tensor(x: object) -> Tensor | None:
-    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
-        return x.real_tensor
-    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
-        return torch._C._get_fake_real_tensor(x)
-    return None
-
-
-def maybe_get_fake_device(x: object) -> torch.device | None:
-    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
-        return x.fake_device
-    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
-        try:
-            return torch._C._fake_tensor_device(x)
-        except RuntimeError:
-            return None
-    return None
-
-
-def maybe_get_fake_constant(x: object) -> Tensor | None:
-    # The constant a fake tensor was created from, for Python or C++ fakes.
-    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
-        return x.constant
-    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
-        return torch._C._get_fake_constant(x)
-    return None
-
-
 def is_fake(x: object) -> TypeGuard[Tensor]:
     from torch._subclasses.functional_tensor import FunctionalTensor
 
@@ -360,6 +332,34 @@ def maybe_get_fake_mode(t: object) -> FakeTensorMode | CppFakeTensorMode | None:
         return maybe_get_fake_mode(unwrapped)
     elif isinstance(t, Tensor):
         return torch._C.maybe_get_fake_mode(t)
+    return None
+
+
+def maybe_get_real_tensor(x: object) -> Tensor | None:
+    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
+        return x.real_tensor
+    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
+        return torch._C._get_fake_real_tensor(x)
+    return None
+
+
+def maybe_get_fake_device(x: object) -> torch.device | None:
+    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
+        return x.fake_device
+    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
+        try:
+            return torch._C._fake_tensor_device(x)
+        except RuntimeError:
+            return None
+    return None
+
+
+def maybe_get_fake_constant(x: object) -> Tensor | None:
+    # The constant a fake tensor was created from, for Python or C++ fakes.
+    if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
+        return x.constant
+    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
+        return torch._C._get_fake_constant(x)
     return None
 
 

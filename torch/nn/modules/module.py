@@ -973,7 +973,6 @@ class Module:
                 or isinstance(param, FakeTensor)  # noqa: ISINSTANCE_FAKE_TENSOR
             )
 
-
             param_grad = param.grad
             if p_should_use_swap_tensors:
                 try:

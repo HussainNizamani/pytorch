@@ -1337,12 +1337,9 @@ def _free_unbacked_symbols_with_path(
     ):
         from torch._subclasses.fake_tensor import is_fake_tensor, maybe_get_real_tensor
 
-        if is_fake_tensor(a):
-            # maybe_get_real_tensor is None for C++ fakes (propagate_real_tensors
-            # is not implemented in C++); match_tensor handles a None real tensor.
-            match_tensor(a, maybe_get_real_tensor(a))
-        else:
+        if not is_fake_tensor(a):
             raise AssertionError(f"Expected FakeTensor, got {type(a)}")
+        match_tensor(a, maybe_get_real_tensor(a))
     elif (
         isinstance(a, (torch.SymInt, torch.SymFloat))
         and isinstance(s := expr(a), sympy.Symbol)

@@ -45,7 +45,9 @@ from torch._subclasses.fake_tensor import (
     MetadataMismatchError,
     unset_fake_temporarily,
     UnsupportedOperatorException,
+    maybe_get_fake_constant,
     maybe_get_fake_device,
+    maybe_get_fake_mode,
 )
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch.fx.experimental.symbolic_shapes import (
@@ -125,20 +127,6 @@ if CPP_FAKETENSOR:
         mode.set_allow_fallback_kernels(allow_fallback_kernels)
         mode.allow_non_fake_inputs = allow_non_fake_inputs
         return mode
-
-
-def get_fake_mode(t):
-    if CPP_FAKETENSOR:
-        return torch._C.maybe_get_fake_mode(t)
-    else: # python faketensor
-        return t.fake_mode
-
-
-def get_constant(t):
-    # we're storing this on the mode instead of TensorImpl's ExtraMeta
-    if CPP_FAKETENSOR:
-        return torch._C._get_fake_constant(t)
-    return t.constant
 
 
 def expectedFailurePropagateRealTensors(fn):
@@ -1657,8 +1645,8 @@ class FakeTensorTest(TestCase):
         t2 = mode2.from_tensor(t1)
         # t2.size(0) is still dynamic, even though we didn't pass DYNAMIC here
         self.assertIsNot(t2, t1)
-        self.assertIs(get_fake_mode(t1), mode1)
-        self.assertIs(get_fake_mode(t2), mode2)
+        self.assertIs(maybe_get_fake_mode(t1), mode1)
+        self.assertIs(maybe_get_fake_mode(t2), mode2)
         self.assertIs(t2.size(0).node.shape_env, t1.size(0).node.shape_env)
         self.assertEqual(str(t2.size(0)), str(t1.size(0)))
 
@@ -1834,8 +1822,8 @@ def forward(self, x_1):
         # does!
         self.assertTrue(free_symbols(t1.size()))
         self.assertIsNot(t2, t1)
-        self.assertIs(get_fake_mode(t1.offsets()), mode1)
-        self.assertIs(get_fake_mode(t2.offsets()), mode2)
+        self.assertIs(maybe_get_fake_mode(t1.offsets()), mode1)
+        self.assertIs(maybe_get_fake_mode(t2.offsets()), mode2)
         self.assertIs(t2.size(1).node.shape_env, t1.size(1).node.shape_env)
         self.assertEqual(str(t2.size(1)), str(t1.size(1)))
 
@@ -2506,11 +2494,11 @@ make_propagate_real_tensors_cls(FakeTensorTest)
 class FakeTensorConstHandling(TestCase):
     def assertConst(self, *args):
         for arg in args:
-            self.assertTrue(get_constant(arg) is not None)
+            self.assertTrue(maybe_get_fake_constant(arg) is not None)
 
     def assertNotConst(self, *args):
         for arg in args:
-            self.assertTrue(get_constant(arg) is None)
+            self.assertTrue(maybe_get_fake_constant(arg) is None)
 
     def test_simple(self):
         with FakeTensorMode():
@@ -2531,9 +2519,8 @@ class FakeTensorConstHandling(TestCase):
             y = x[:]
 
             self.assertEqual(x.storage()._cdata, y.storage()._cdata)
-            self.assertEqual(
-                get_constant(x).storage()._cdata, get_constant(y).storage()._cdata
-            )
+            xc, yc = maybe_get_fake_constant(x), maybe_get_fake_constant(y)
+            self.assertEqual(xc.storage()._cdata, yc.storage()._cdata)
 
     def test_constant_invalidation(self):
         with FakeTensorMode():
@@ -2815,7 +2802,7 @@ class FakeTensorConverterTest(TestCase):
             y = torch.empty(2, 2, device="cpu")
 
         out = x + y
-        self.assertEqual(mode, get_fake_mode(out))
+        self.assertEqual(mode, maybe_get_fake_mode(out))
         self.assertTrue(is_fake_tensor(out))
         self.assertEqual(out.device.type, "cpu")
 

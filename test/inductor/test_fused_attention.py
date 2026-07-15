@@ -37,16 +37,13 @@ class TestSDPAPatternRewriterTemplate(TestCase):
     use_static_shapes = True
 
     def setUp(self):
-        # Use allow_tf32, which sets the legacy and new matmul precision APIs
-        # consistently. Setting fp32_precision directly leaves the legacy API
-        # untouched, which trips the mixed-API check in get_float32_matmul_precision.
-        self.prev_tf32 = torch.backends.cuda.matmul.allow_tf32
-        torch.backends.cuda.matmul.allow_tf32 = True
+        self.prev_tf32 = torch.backends.cuda.matmul.fp32_precision
+        torch.backends.cuda.matmul.fp32_precision = "tf32"
         super().setUp()
 
     def tearDown(self):
         super().tearDown()
-        torch.backends.cuda.matmul.allow_tf32 = self.prev_tf32
+        torch.backends.cuda.matmul.fp32_precision = self.prev_tf32
 
     def _clone_inputs(self, inputs):
         def clone(x):

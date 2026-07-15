@@ -5071,7 +5071,7 @@ def infer_scale_swizzle_ir(
     )
 
 
-def get_fake_mode(
+def create_fake_mode(
     *,
     allow_non_fake_inputs: bool = False,
     shape_env: Any = None,
@@ -5079,7 +5079,7 @@ def get_fake_mode(
     """Return python FakeTensorMode or c++ FakeTensorMode if CPP_FAKETENSOR=1"""
     from torch._subclasses.fake_tensor import CppFakeTensorMode, FakeTensorConverter
 
-    if config.use_cpp_fake_tensor:
+    if torch._dynamo.config.use_cpp_fake_tensor:
         cpp_mode = CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
         if cpp_mode is None:
             cpp_mode = CppFakeTensorMode.create_cpp_fake_tensor_mode(

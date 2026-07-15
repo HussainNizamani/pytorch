@@ -992,10 +992,10 @@ def stamp_out_subgraph(
             vt = VariableBuilder(tx, new_source)(value)
             new_lifted_args.append(vt.as_proxy())
 
-    fake_mode = tx.fake_mode
-    if fake_mode is None:
-        raise AssertionError("fake_mode must not be None for stamp_out_subgraph")
-    with fake_mode:
+    # Generate fake tensor outputs
+    if tx.fake_mode is None:
+        raise AssertionError("tx.fake_mode must not be None for stamp_out_subgraph")
+    with tx.fake_mode:
         example_value = tuple(
             torch.empty_strided(
                 shape,

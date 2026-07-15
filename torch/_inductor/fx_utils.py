@@ -22,7 +22,7 @@ import torch
 import torch.fx
 from torch._dispatch.python import enable_python_dispatcher
 from torch._inductor.fx_passes.control_dependencies import control_deps
-from torch._inductor.utils import get_fake_mode
+from torch._inductor.utils import create_fake_mode
 
 
 def _get_shape_env():
@@ -878,7 +878,7 @@ def is_node_realized(node: torch.fx.Node) -> bool:
 def count_flops_fx(node: torch.fx.Node) -> int | None:
     if not countable_fx(node) or isinstance(node.target, str):
         return None
-    with get_fake_mode(allow_non_fake_inputs=True):
+    with create_fake_mode(allow_non_fake_inputs=True):
         success, args, kwargs = get_fake_args_kwargs(node)
 
         if success:

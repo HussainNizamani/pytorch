@@ -2599,7 +2599,8 @@ def device_hint(tensor) -> "str":
         and tensor.device.type != "meta"
     ):
         return tensor.device.type
-    return "cuda"  # default to cuda
+    else:
+        return "cuda"  # default to cuda
 
 
 def calc_conv_nd_return_shape(
@@ -2740,7 +2741,8 @@ def calc_conv_nd_return_shape(
     from torch._subclasses.fake_tensor import maybe_get_fake_device
     from torch.fx.experimental.symbolic_shapes import sym_and, sym_or
 
-    device = maybe_get_fake_device(input_tensor) or input_tensor.device
+    fake_device = maybe_get_fake_device(input_tensor)
+    device = fake_device if fake_device is not None else input_tensor.device
 
     # ROCm reports device.type as "cuda"; keep the existing NVIDIA CUDA behavior
     # unchanged and only apply the new check to HIP.

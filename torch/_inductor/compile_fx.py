@@ -91,9 +91,9 @@ from torch._inductor.runtime.cache_dir_utils import cache_dir
 from torch._inductor.utils import (
     BoxedBool,
     count_tangents,
+    create_fake_mode,
     fresh_cache,
     get_all_devices,
-    get_fake_mode,
     get_static_bw_input_idxs,
     InputType,
     is_gpu,
@@ -737,7 +737,7 @@ def fake_tensor_prop(
     with enable_python_dispatcher():
         fake_mode = detect_fake_mode(example_inputs)
         if not fake_mode:
-            fake_mode = get_fake_mode(allow_non_fake_inputs=True)
+            fake_mode = create_fake_mode(allow_non_fake_inputs=True)
             FakeTensorProp(gm, mode=fake_mode).propagate(*example_inputs)
         else:
             ctx = (
@@ -1417,7 +1417,7 @@ class _InProcessFxCompile(FxCompile):
 
             prev_cpp_fake_mode = (
                 CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
-                if config.use_cpp_fake_tensor
+                if torch._dynamo.config.use_cpp_fake_tensor
                 else None
             )
             with dynamo_timed(
@@ -1430,7 +1430,7 @@ class _InProcessFxCompile(FxCompile):
                 with torch.no_grad():
                     fake_mode = fake_tensor_prop(gm, example_inputs)
 
-            if config.use_cpp_fake_tensor:
+            if torch._dynamo.config.use_cpp_fake_tensor:
                 cpp_fake_mode = CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
                 if cpp_fake_mode is not None and cpp_fake_mode is not prev_cpp_fake_mode:
                     cpp_fake_stack.callback(torch._C._exit_fake_tensor_mode)
@@ -3211,7 +3211,7 @@ def _compile_fx_main(
                 return inference_compiler(unlifted_gm, example_inputs_)
 
         with contextlib.ExitStack() as cpp_fake_stack:
-            if config.use_cpp_fake_tensor:
+            if torch._dynamo.config.use_cpp_fake_tensor:
                 cpp_fake_mode = CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
                 if cpp_fake_mode is None:
                     cpp_fake_mode = CppFakeTensorMode.create_cpp_fake_tensor_mode(
