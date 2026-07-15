@@ -53,9 +53,6 @@ from torch._logging import trace_structured
 from torch._ops import HigherOrderOperator, OpOverload
 from torch._subclasses.fake_impls import fast_detach
 from torch._subclasses.fake_tensor import (
-    maybe_get_fake_mode,
-    is_fake_tensor,
-    cpp_fake_tensor_mode_active,
     CppFakeTensorMode,
     FakeTensor,
     FakeTensorMode,
@@ -65,9 +62,6 @@ from torch._subclasses.fake_tensor import (
     maybe_get_fake_mode,
     unset_fake_temporarily,
 )
-
-
-_has_cpp_fake_tensor = hasattr(torch._C, "_is_fake_tensor")
 
 
 from torch._subclasses.functional_tensor import FunctionalTensor
@@ -746,7 +740,7 @@ def extract_val(val: _ExtractValType, include_real: bool = False) -> _ExtractVal
         return {k: extract_val(v) for k, v in val.items()}
     elif isinstance(val, Tensor):
         if not val.is_sparse:
-            if cpp_fake_tensor_mode_active():
+            if CppFakeTensorMode._get_active_cpp_fake_tensor_mode() is not None:
                 return torch.empty_strided(  # revist this
                     val.shape, val.stride(), device=val.device, dtype=val.dtype
                 )
@@ -2928,9 +2922,25 @@ class _MakefxTracer:
         self, f: Callable[..., Any], args: tuple[object, ...]
     ) -> Generator[None, None, None]:
         prev_modes = self._checkpoint_modes()
+        # Whether we created (and thus own the teardown of) a C++ fake mode's
+        # TLS state on this trace; see the finally block.
+        created_cpp_fake_mode = False
         try:
             # Avoid importing sympy at a module level
             from .symbolic_shapes import ShapeEnv
+
+            import torch._dynamo
+
+            def _make_cpp_fake_mode(
+                shape_env: ShapeEnv, static_shapes: bool
+            ) -> CppFakeTensorMode:
+                from torch._subclasses.fake_tensor import FakeTensorConverter
+
+                mode = CppFakeTensorMode.create_cpp_fake_tensor_mode(
+                    FakeTensorConverter(), shape_env
+                )
+                mode.static_shapes = static_shapes
+                return mode
 
             if hasattr(f, "_orig_mod") and self.record_module_stack:
                 scope_root = f._orig_mod
@@ -2946,19 +2956,29 @@ class _MakefxTracer:
                     self.fx_tracer._record_forward_stack_traces_only = True
 
             if self.tracing_mode == "fake":
-                import torch._dynamo
-
                 fake_tensor_mode = torch._dynamo.utils.detect_fake_mode(args)
                 if fake_tensor_mode is None:
-                    import torch._functorch.config as _config
-
-                    with _config.patch(fake_tensor_allow_unsafe_data_ptr_access=False):
-                        fake_tensor_mode = FakeTensorMode(
-                            allow_fallback_kernels=True,
-                            allow_non_fake_inputs=self._allow_non_fake_inputs,
-                            shape_env=ShapeEnv(),
-                            static_shapes=True,
+                    if torch._dynamo.config.use_cpp_fake_tensor:
+                        # A ShapeEnv is still needed so data-dependent ops (e.g.
+                        # .item()) can allocate unbacked symbols; static_shapes
+                        # keeps input sizes concrete (matches static_shapes=True
+                        # on the Python mode).
+                        fake_tensor_mode = _make_cpp_fake_mode(
+                            ShapeEnv(), static_shapes=True
                         )
+                        created_cpp_fake_mode = True
+                    else:
+                        import torch._functorch.config as _config
+
+                        with _config.patch(
+                            fake_tensor_allow_unsafe_data_ptr_access=False
+                        ):
+                            fake_tensor_mode = FakeTensorMode(
+                                allow_fallback_kernels=True,
+                                allow_non_fake_inputs=self._allow_non_fake_inputs,
+                                shape_env=ShapeEnv(),
+                                static_shapes=True,
+                            )
                 # dynamic_shapes wires unbacked symbols into the shape env, so
                 # it requires one. The fake mode we create above always has it;
                 # a detected ambient fake mode might not, and mutating a
@@ -2974,19 +2994,25 @@ class _MakefxTracer:
                     )
                 self.fake_tensor_mode = fake_tensor_mode
             elif self.tracing_mode == "symbolic":
-                import torch._dynamo
-
                 fake_tensor_mode = torch._dynamo.utils.detect_fake_mode(args)
                 if fake_tensor_mode is None:
                     shape_env = ShapeEnv()
-                    import torch._functorch.config as _config
-
-                    with _config.patch(fake_tensor_allow_unsafe_data_ptr_access=False):
-                        fake_tensor_mode = FakeTensorMode(
-                            allow_fallback_kernels=False,
-                            allow_non_fake_inputs=self._allow_non_fake_inputs,
-                            shape_env=shape_env,
+                    if torch._dynamo.config.use_cpp_fake_tensor:
+                        fake_tensor_mode = _make_cpp_fake_mode(
+                            shape_env, static_shapes=False
                         )
+                        created_cpp_fake_mode = True
+                    else:
+                        import torch._functorch.config as _config
+
+                        with _config.patch(
+                            fake_tensor_allow_unsafe_data_ptr_access=False
+                        ):
+                            fake_tensor_mode = FakeTensorMode(
+                                allow_fallback_kernels=False,
+                                allow_non_fake_inputs=self._allow_non_fake_inputs,
+                                shape_env=shape_env,
+                            )
                 if fake_tensor_mode.shape_env is None:
                     raise AssertionError(
                         "shape_env should be set if tracing with 'symbolic'"
@@ -2998,20 +3024,15 @@ class _MakefxTracer:
                         f"Unexpected tracing type: {self.tracing_mode}"
                     )
 
-            cpp_fake_mode = (
-                CppFakeTensorMode._get_active_cpp_fake_tensor_mode()
-                if _has_cpp_fake_tensor
-                else None
-            )
-            if self.fake_tensor_mode is not None and cpp_fake_mode is not None:
-                cpp_fake_mode.set_allow_fallback_kernels(
-                    self.fake_tensor_mode.allow_fallback_kernels
-                )
-
             self._construct_modes_with_fx_tracer(self.fx_tracer)
             yield
         finally:
             self._restore_modes(*prev_modes)
+            # Unlike a Python FakeTensorMode (a scoped dispatch mode), a C++ fake
+            # mode installs persistent TLS state on creation; clear it so it does
+            # not leak past this trace. Only when we created it here.
+            if created_cpp_fake_mode:
+                torch._C._exit_fake_tensor_mode()
 
     def _construct_modes_with_fx_tracer(self, fx_tracer: _ProxyTracer) -> None:
         self.proxy_mode = ProxyTorchDispatchMode(
@@ -3210,7 +3231,7 @@ class _MakefxTracer:
             ProxyTorchDispatchMode, self.proxy_mode
         )
         with ExitStack() as stack:
-            if self.fake_tensor_mode and not cpp_fake_tensor_mode_active():
+            if self.fake_tensor_mode:
                 stack.enter_context(self.fake_tensor_mode)
             stack.enter_context(self.python_dispatcher_mode)
             stack.enter_context(self.proxy_function_mode)

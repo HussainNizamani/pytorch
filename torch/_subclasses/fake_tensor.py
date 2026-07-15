@@ -331,15 +331,15 @@ def maybe_get_fake_mode(t: object) -> FakeTensorMode | CppFakeTensorMode | None:
         unwrapped = torch._C._functorch.get_unwrapped(t)
         return maybe_get_fake_mode(unwrapped)
     elif isinstance(t, Tensor):
-        return torch._C.maybe_get_fake_mode(t)
+        return torch._C._maybe_get_fake_mode(t)
     return None
 
 
 def maybe_get_real_tensor(x: object) -> Tensor | None:
     if isinstance(x, FakeTensor):  # noqa: ISINSTANCE_FAKE_TENSOR
         return x.real_tensor
-    if isinstance(x, Tensor) and torch._C._is_fake_tensor(x):
-        return torch._C._get_fake_real_tensor(x)
+    # C++ fakes don't carry a real tensor (propagate_real_tensors is not
+    # implemented for the C++ path), so there is nothing to return.
     return None
 
 
@@ -370,8 +370,16 @@ class CppFakeTensorMode:
         shape_env: Any = None,
         fake_tensor_converter: Any = None,
         allow_fallback_kernels: bool = True,
+        static_shapes: bool | None = None,
     ) -> None:
         self.shape_env = shape_env
+        # Sizes are static when there is no ShapeEnv, matching FakeTensorMode.
+        # A ShapeEnv can still be present for static tracing (so data-dependent
+        # ops can allocate unbacked symbols); from_tensor then forces a static
+        # symbolic context so input sizes stay concrete.
+        if static_shapes is None:
+            static_shapes = shape_env is None
+        self.static_shapes = static_shapes
         self.fake_tensor_converter = fake_tensor_converter
         self.allow_fallback_kernels = allow_fallback_kernels
         self.allow_scalar_outputs = False
@@ -441,7 +449,21 @@ class CppFakeTensorMode:
         symbolic_context: SymbolicContext | None = None,
         trace: bool = True,
     ) -> Tensor:
-        return torch._C.from_tensor(
+        if static_shapes is None:
+            static_shapes = self.static_shapes
+        # The C++ converter keys sizing off the mode's ShapeEnv, so to keep
+        # sizes static while the ShapeEnv stays live for data-dependent ops,
+        # force an all-static symbolic context.
+        if static_shapes and symbolic_context is None and source is not None:
+            from torch.fx.experimental.symbolic_shapes import (
+                DimDynamic,
+                StatelessSymbolicContext,
+            )
+
+            symbolic_context = StatelessSymbolicContext(
+                dynamic_sizes=[DimDynamic.STATIC] * tensor.dim()
+            )
+        return torch._C._from_tensor(
             tensor,
             source=source,
             symbolic_context=symbolic_context,
@@ -450,7 +472,7 @@ class CppFakeTensorMode:
     def from_meta_and_device(self, t: Tensor, device: torch.device) -> Tensor:
         # i could branch in the existing converter but i think keeping it separate
         # for now is better...if we going to eventually delete Python converter?
-        return torch._C.from_meta_and_device(t, device)
+        return torch._C._from_meta_and_device(t, device)
 
     # need for op_impl
     @contextlib.contextmanager
@@ -467,11 +489,6 @@ class CppFakeTensorMode:
             finally:
                 self.in_kernel_invocation = prev
 
-def cpp_fake_tensor_mode_active() -> bool:
-    return (
-        hasattr(torch._C, "_is_fake_tensor")
-        and CppFakeTensorMode._get_active_cpp_fake_tensor_mode() is not None
-    )
 
 @functools.cache
 def get_schema_info(func: OpOverload) -> torch._C._SchemaInfo:
@@ -668,7 +685,7 @@ class FakeTensorConverter:
             # invocation manager (I think!)
             with no_dispatch():
                 if isinstance(fake_mode, CppFakeTensorMode):
-                    return torch._C.from_meta_and_device(
+                    return torch._C._from_meta_and_device(
                         make_meta_t(), torch.device(device)
                     )
                 return FakeTensor(
@@ -816,9 +833,11 @@ class FakeTensorConverter:
 
     def to_meta_tensor(self, t, shape_env=None, source=None, symbolic_context=None):
         """Convert a real tensor to a meta tensor without FakeTensor wrapper."""
-        # ShapeEnv._create_symbolic_sizes_strides_storage_offset requires a
-        # non-None source for TensorPropertySource construction.
-        effective_shape_env = shape_env if source is not None else None
+        # A None source is fine: meta_tensor synthesizes a ConstantSource when
+        # one isn't given, so symbolic sizes are still produced (matching the
+        # Python from_real_tensor path). Dropping the ShapeEnv here would force
+        # static sizes whenever from_tensor is called without a source.
+        effective_shape_env = shape_env
 
         def identity_callback(make_meta_t, device):
             return make_meta_t()
@@ -853,7 +872,7 @@ class FakeTensorConverter:
         if maybe_memo is not None:
             return maybe_memo
         if isinstance(fake_mode, CppFakeTensorMode):
-            out = torch._C.from_meta_and_device(t, torch.device(device))
+            out = torch._C._from_meta_and_device(t, torch.device(device))
         else:
             out = FakeTensor(
                 fake_mode, t, device, pytype=pytype, dispatch_keys=dispatch_keys

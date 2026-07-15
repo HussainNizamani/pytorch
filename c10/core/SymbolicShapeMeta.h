@@ -57,7 +57,8 @@ class C10_API SymbolicShapeMeta {
   }
 
   void refresh_materialized() {
-    available_.fetch_and(~(sizes_materialized_avail | strides_materialized_avail));
+    available_.fetch_and(
+        ~(sizes_materialized_avail | strides_materialized_avail));
   }
 
   int64_t dim() const {

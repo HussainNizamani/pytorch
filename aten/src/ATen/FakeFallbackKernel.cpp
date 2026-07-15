@@ -151,7 +151,7 @@ std::optional<c10::Device> _find_common_device(
       bypass_zero_dim_cpu_tensor_check(op);
   const bool mixed_device = mixed_device_fns(op);
   const bool meta_rhs_mixed_device = meta_rhs_mixed_device_fns(op);
-  const std::optional<std::string> prefer_device_type =
+  const std::optional<c10::DeviceType> prefer_device_type =
       mode ? mode->prefer_device_type : std::nullopt;
 
   for_each_tensor(
@@ -195,12 +195,9 @@ std::optional<c10::Device> _find_common_device(
         }
         // if prefer_device_type is set, prefer that device type over others
         if (prefer_device_type.has_value()) {
-          auto common_name = c10::DeviceTypeName(common_device->type(), true);
-          auto t_name = c10::DeviceTypeName(t.device().type(), true);
           bool common_has_preferred =
-              common_name.find(*prefer_device_type) != std::string::npos;
-          bool t_has_preferred =
-              t_name.find(*prefer_device_type) != std::string::npos;
+              common_device->type() == *prefer_device_type;
+          bool t_has_preferred = t.device().type() == *prefer_device_type;
           if (!common_has_preferred && t_has_preferred) {
             // Switch to the preferred device type
             common_device = t.device();

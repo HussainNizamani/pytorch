@@ -216,6 +216,7 @@ void TensorImpl::set_fake_device(c10::Device fake_device) {
   set_custom_device(true);
 
   if (fake_device.type() != c10::DeviceType::Meta) {
+    // change backend key from Meta to the fake device
     _change_backend_component_keys(fake_device);
   }
 }
@@ -395,35 +396,17 @@ c10::SymBool TensorImpl::sym_is_non_overlapping_and_dense_custom() const {
 
 IntArrayRef TensorImpl::sizes_custom() const {
   // for faketensors with symints, a return type of IntArrayRef is problematic
-  // because in order to return a ref you need to have smth owning it and for SymInts
-  // this is not materialized yet
+  // because in order to return a ref you need to have smth owning it and for
+  // SymInts this is not materialized yet
   if (C10_UNLIKELY(matches_python_custom(SizesStridesPolicy::CustomSizes))) {
     return (*c10::impl::getGlobalPyInterpreter())->sizes(this);
   }
   if (C10_UNLIKELY(has_symbolic_sizes_strides_)) {
-    // to detemrine if a tensor is Python FakeTensor
-    // we check if tensor is not c++ faketensor and Fake has not been
-    // excluded from TLS
-    // fakeFallback will exclude Fake key explicitly before dispatching
-    // to meta kernel
-    // also not excluded != included since its different bits or smth
-
-    // for Python FakeTensor, we use PyInterpreter to call .sizes() and guard the SymInts
-    // with the concrete integer value. this is stored on the PyObject which is tied to
-    // the lifetime of the tensor
-    if (is_fake()) {
-      // for C++ FakeTensors that haven't crossed the Python boundary, we don't
-      // have a PyInterpreter yet
-      // so we call guard_int() directly here to materialize the vector
-      // and we store this on the SymbolicShapeMeta in the tensor's TensorImpl
-      // so the lifetime is also equivalently tied to the lifetime of the tensor
-      // and is owned by SymbolicShapeMeta
-      return symbolic_shape_meta().materialized_sizes();
-    } else {
-      if (auto* interp = c10::impl::getGlobalPyInterpreter()) {
-        return (*interp)->sizes(this);
-      }
-    }
+    // guard_int() the SymInts to materialize an int64_t vector owned by
+    // SymbolicShapeMeta (lifetime tied to the TensorImpl). Explicit Python
+    // customization goes through the CustomSizes branch above; every other
+    // symbolic tensor materializes here.
+    return symbolic_shape_meta().materialized_sizes();
   }
   return sizes_default();
 }
@@ -465,18 +448,15 @@ c10::Device TensorImpl::device_custom() const {
 }
 
 IntArrayRef TensorImpl::strides_custom() const {
+  // for faketensors with symints, a return type of IntArrayRef is problematic
+  // because in order to return a ref you need to have smth owning it and for
+  // SymInts this is not materialized yet
   if (C10_UNLIKELY(matches_python_custom(SizesStridesPolicy::CustomStrides))) {
     return (*c10::impl::getGlobalPyInterpreter())->strides(this);
   }
   if (C10_UNLIKELY(has_symbolic_sizes_strides_)) {
-    if (!is_fake() &&
-        !c10::impl::tls_is_dispatch_key_excluded(DispatchKey::Fake)) {
-      if (auto* interp = c10::impl::getGlobalPyInterpreter()) {
-        return (*interp)->strides(this);
-      }
-    } else {
-      return symbolic_shape_meta().materialized_strides();
-    }
+    // same reasoning as sizes_custom() above
+    return symbolic_shape_meta().materialized_strides();
   }
   return strides_default();
 }
@@ -513,13 +493,7 @@ int64_t TensorImpl::storage_offset_custom() const {
         .guard_int(__FILE__, __LINE__);
   }
   if (C10_UNLIKELY(has_symbolic_sizes_strides_)) {
-    if (!is_fake() &&
-        !c10::impl::tls_is_dispatch_key_excluded(DispatchKey::Fake)) {
-      if (auto* interp = c10::impl::getGlobalPyInterpreter()) {
-        return (*interp)->sym_storage_offset(this).guard_int(
-            __FILE__, __LINE__);
-      }
-    }
+    // same reasoning as sizes_custom() above
     return symbolic_shape_meta().storage_offset_.guard_int(__FILE__, __LINE__);
   }
   return storage_offset_default();
@@ -1122,8 +1096,7 @@ void FakeTensorMode::set_constant(
     c10::StorageImpl* constant_storage) {
   std::lock_guard<std::mutex> lock(constant_mutex_);
   if (constant_storage) {
-    constant_storage_mapping_[constant_storage].push_back(
-        c10::weak_intrusive_ptr<c10::TensorImpl>(fake_impl));
+    constant_storage_mapping_[constant_storage].emplace_back(fake_impl);
   }
   tensor_to_constant_[fake_impl.get()] = std::move(constant);
 }
