@@ -4,6 +4,7 @@
 #include <ATen/native/DispatchStub.h>
 #include <c10/util/TypeCast.h>
 #include <c10/util/irange.h>
+#include <c10/util/safe_conv.h>
 
 #include <utility>
 
@@ -47,13 +48,6 @@ using max_pool3d_backward_fn = void(*)(Tensor& grad_input, const Tensor& grad_ou
 DECLARE_DISPATCH(max_pool3d_fn, max_pool3d_kernel)
 DECLARE_DISPATCH(max_pool3d_backward_fn, max_pool3d_backward_kernel)
 namespace {
-
-template <typename dest_t, typename src_t>
-inline dest_t
-safe_downcast(src_t v)
-{
-  return c10::checked_convert<dest_t>(v, "dest_t");
-}
 
 template<typename T>
 inline T pooling_output_shape_pad_lr(
