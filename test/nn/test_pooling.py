@@ -29,7 +29,6 @@ from torch.testing._internal.common_device_type import (
     largeTensorTest,
     onlyAccelerator,
     onlyCPU,
-    onlyCUDA,
     onlyMPS,
     onlyOn,
     TEST_WITH_ROCM,
