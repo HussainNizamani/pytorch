@@ -3,7 +3,9 @@ import json
 import shutil
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from tools.linter.adapters import gb_registry_linter
 from tools.linter.adapters.gb_registry_linter import (
     check_registry_sync,
     LINTER_CODE,
@@ -547,6 +549,63 @@ def other():
 
         messages = check_registry_sync(self.test_data_dir, self.registry_path)
         self.assertEqual(messages, [])
+
+    def test_collects_raises_and_calls_with_single_parse(self):
+        callsite_content = """from torch._dynamo.exc import Unsupported, unimplemented
+
+def test(self):
+    unimplemented(
+        gb_type="testing",
+        context="testing",
+        explanation="testing",
+        hints=["testing"],
+    )
+    raise Unsupported("testing")
+"""
+        with open(self.callsite_file, "w") as f:
+            f.write(callsite_content)
+
+        parse_count = 0
+        original_parse = gb_registry_linter.ast.parse
+
+        def counting_parse(*args, **kwargs):
+            nonlocal parse_count
+            parse_count += 1
+            return original_parse(*args, **kwargs)
+
+        with mock.patch(
+            "tools.linter.adapters.gb_registry_linter.ast.parse",
+            side_effect=counting_parse,
+        ):
+            messages = check_registry_sync(self.test_data_dir, self.registry_path)
+
+        self.assertEqual(parse_count, 1)
+        self.assertEqual(
+            [message.name for message in messages],
+            [
+                "Direct raise Unsupported",
+                "Registry sync needed",
+            ],
+        )
+
+    def test_splitlines_patch_supports_original_without_maxlines(self):
+        calls = []
+
+        def one_arg_splitlines(source):
+            calls.append(source)
+            return source.splitlines()
+
+        source = "first\nsecond\nthird"
+        with mock.patch.object(
+            gb_registry_linter.ast, "_splitlines_no_ff", one_arg_splitlines
+        ):
+            gb_registry_linter._patch_ast_splitlines_no_ff()
+            patched_splitlines = gb_registry_linter.ast._splitlines_no_ff
+
+            self.assertEqual(patched_splitlines(source, 2), ["first", "second"])
+            self.assertEqual(patched_splitlines(source), ["first", "second", "third"])
+
+        self.assertEqual(calls, [source])
 
 
 if __name__ == "__main__":
