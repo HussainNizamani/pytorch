@@ -3432,7 +3432,14 @@ def get_cloned_parameter_buffer_name(name: str) -> str:
 
 
 def is_gpu(device: str | None) -> bool:
-    return device in GPU_TYPES
+    if device is None:
+        return False
+    from torch._dynamo.device_interface import get_interface_for_device
+
+    try:
+        return get_interface_for_device(device).is_gpu()
+    except NotImplementedError:
+        return False
 
 
 def is_rocm() -> bool:
@@ -3516,7 +3523,13 @@ def is_triton_fp8_dtype_supported(
 
 
 def device_need_guard(device: str) -> bool:
-    return device != "mps" and is_gpu(device)  # TODO: MPS does not expose streams now
+    from torch._dynamo.device_interface import get_interface_for_device
+
+    try:
+        iface = get_interface_for_device(device)
+    except NotImplementedError:
+        return False
+    return iface.is_gpu() and iface.exposes_streams()
 
 
 def needs_fallback_due_to_atomic_add_limitations(dtype: torch.dtype) -> bool:
