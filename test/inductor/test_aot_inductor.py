@@ -2550,7 +2550,18 @@ class AOTInductorTestsTemplate:
         ep = torch.export.export(m, inputs, dynamic_shapes=dynamic_shapes, strict=False)
         path = torch._inductor.aot_compile(ep.module(), inputs)
         aot_model = torch._export.aot_load(path, device=self.device)
-        torch.testing.assert_close(m(*inputs), aot_model(*inputs))
+        eager_result = m(*inputs)
+        device_type = torch.device(self.device).type
+        if device_type == "xpu":
+            torch.xpu.synchronize()
+        elif device_type == "cuda":
+            torch.cuda.synchronize()
+        aot_result = aot_model(*inputs)
+        if device_type == "xpu":
+            torch.xpu.synchronize()
+        elif device_type == "cuda":
+            torch.cuda.synchronize()
+        torch.testing.assert_close(eager_result, aot_result)
 
     @unittest.skipIf(IS_MACOS, "fp8 is not supported on Mac")
     def test_aoti_fp8(self):
