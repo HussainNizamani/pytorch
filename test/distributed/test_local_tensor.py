@@ -573,6 +573,100 @@ class TestLocalTensorRankWorld3(LocalTensorRankTest):
             expected_output = torch.tensor([0.0, 0.0, 1.0, 1.0, 2.0, 2.0])
             self.assertEqual(result._local_tensors[self.rank], expected_output)
 
+    def test_all_to_all_single_uneven_splits(self):
+        """all_to_all_single should support uneven split sizes (gh-177371)."""
+        different_tensors = {
+            r: torch.arange(24, dtype=torch.float).reshape(6, 4) + r * 100
+            for r in range(self.world_size)
+        }
+
+        fake_pg = torch.distributed.distributed_c10d._get_default_group()
+
+        with LocalTensorMode(self.world_size):
+            lt_input = LocalTensor({k: v.clone() for k, v in different_tensors.items()})
+            lt_output = torch.zeros(6, 4)
+
+            dist.all_to_all_single(
+                lt_output,
+                lt_input,
+                output_split_sizes=[3, 2, 1],
+                input_split_sizes=[2, 2, 2],
+                group=fake_pg,
+            )
+
+        # Every rank sends rows [2 * j, 2 * j + 2) to rank_j, so rank_j
+        # receives those rows from each rank, in rank order
+        for dst in range(self.world_size):
+            expected = torch.cat(
+                [
+                    different_tensors[src][2 * dst : 2 * dst + 2]
+                    for src in range(self.world_size)
+                ]
+            )
+            self.assertEqual(lt_output._local_tensors[dst], expected)
+
+    def test_all_to_all_single_per_rank_splits(self):
+        """Functional all_to_all_single with per-rank (LocalIntNode) split sizes."""
+        from torch.distributed._functional_collectives import all_to_all_single
+
+        different_tensors = {
+            r: torch.arange(24, dtype=torch.float).reshape(6, 4) + r * 100
+            for r in range(self.world_size)
+        }
+        # rank_i's input_split_sizes[j] == rank_j's output_split_sizes[i]
+        input_split_sizes_per_rank = {0: [2, 3, 1], 1: [2, 2, 2], 2: [2, 1, 3]}
+        output_split_sizes_per_rank = {0: [2, 2, 2], 1: [3, 2, 1], 2: [1, 2, 3]}
+
+        def local_int_sizes(per_rank):
+            return [
+                torch.SymInt(
+                    LocalIntNode({r: sizes[j] for r, sizes in per_rank.items()})
+                )
+                for j in range(self.world_size)
+            ]
+
+        fake_pg = torch.distributed.distributed_c10d._get_default_group()
+
+        with LocalTensorMode(self.world_size):
+            lt_input = LocalTensor({k: v.clone() for k, v in different_tensors.items()})
+
+            result = all_to_all_single(
+                lt_input,
+                output_split_sizes=local_int_sizes(output_split_sizes_per_rank),
+                input_split_sizes=local_int_sizes(input_split_sizes_per_rank),
+                group=fake_pg,
+            )
+            result = result.wait()
+
+        for dst in range(self.world_size):
+            chunks = []
+            for src in range(self.world_size):
+                in_sizes = input_split_sizes_per_rank[src]
+                start = sum(in_sizes[:dst])
+                chunks.append(different_tensors[src][start : start + in_sizes[dst]])
+            self.assertEqual(result._local_tensors[dst], torch.cat(chunks))
+
+    def test_all_to_all_single_mismatched_splits_error(self):
+        """Split sizes inconsistent across ranks should raise a clear error."""
+        fake_pg = torch.distributed.distributed_c10d._get_default_group()
+
+        with LocalTensorMode(self.world_size):
+            lt_input = LocalTensor(
+                {r: torch.zeros(6, 4) for r in range(self.world_size)}
+            )
+            lt_output = torch.zeros(6, 4)
+
+            # Every rank sends 3 rows to rank 0 (9 total), but rank 0's
+            # output only has 6 rows
+            with self.assertRaisesRegex(ValueError, "chunks sent to it"):
+                dist.all_to_all_single(
+                    lt_output,
+                    lt_input,
+                    output_split_sizes=[2, 2, 2],
+                    input_split_sizes=[3, 2, 1],
+                    group=fake_pg,
+                )
+
 
 class TestLocalTensorWorld3(LocalTensorWorldTest):
     world_size = 3

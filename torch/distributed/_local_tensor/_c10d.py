@@ -1,7 +1,7 @@
 import functools
 import math
 import operator
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import timedelta
 
 import torch
@@ -256,6 +256,27 @@ def _local_functional_shard_dim_alltoall(
     return output
 
 
+def _resolve_split_sizes(
+    split_sizes: Sequence[torch.SymInt | int], default_ranks: Iterable[int]
+) -> dict[int, list[int]]:
+    # Resolve possibly rank-dependent split sizes into a plain list of ints per
+    # rank. LocalIntNode SymInts carry their own per-rank values; any other
+    # entry applies to every rank in default_ranks.
+    from . import LocalIntNode
+
+    per_rank_sizes: dict[int, list[int]] = {}
+    for split_size in split_sizes:
+        if isinstance(split_size, torch.SymInt) and isinstance(
+            split_size.node, LocalIntNode
+        ):
+            local_ints = dict(split_size.node._local_ints.items())
+        else:
+            local_ints = {rank: int(split_size) for rank in default_ranks}
+        for rank, size in local_ints.items():
+            per_rank_sizes.setdefault(rank, []).append(size)
+    return per_rank_sizes
+
+
 def _local_functional_all_to_all_single(
     tensor: torch.Tensor,
     output_split_sizes: list[torch.SymInt],
@@ -263,7 +284,7 @@ def _local_functional_all_to_all_single(
     group_name: GroupName | ProcessGroup,
 ) -> torch.Tensor:
     # "all_to_all_single(Tensor input, SymInt[] output_split_sizes, SymInt[] input_split_sizes, str group_name) -> Tensor"
-    from . import LocalIntNode, LocalTensor
+    from . import LocalTensor
 
     ranks, group_offsets, offset = _prepare_collective_groups(
         _resolve_pg_or_name(group_name)
@@ -272,18 +293,7 @@ def _local_functional_all_to_all_single(
     if not isinstance(tensor, LocalTensor):
         raise AssertionError("Input tensor must be a LocalTensor")
 
-    split_local_sizes: dict[int, list[int]] = {}
-    for input_split_size in input_split_sizes:
-        if isinstance(input_split_size, torch.SymInt) and isinstance(
-            input_split_size.node, LocalIntNode
-        ):
-            local_ints = dict(input_split_size.node._local_ints.items())
-        else:
-            local_ints = {rank: int(input_split_size) for rank in tensor._local_tensors}
-        for rank, split_size in local_ints.items():
-            if rank not in split_local_sizes:
-                split_local_sizes[rank] = []
-            split_local_sizes[rank].append(split_size)
+    split_local_sizes = _resolve_split_sizes(input_split_sizes, tensor._local_tensors)
 
     split_local_tensors: dict[int, list[torch.Tensor]] = {}
 
@@ -873,11 +883,13 @@ def _local_alltoall_base_(
         raise AssertionError("Input tensor must be a LocalTensor")
     if not isinstance(output_tensor, LocalTensor):
         raise AssertionError("Output tensor must be a LocalTensor")
-    # Convert split sizes to lists if they aren't already
-    if output_split_sizes is not None:
-        output_split_sizes = list(output_split_sizes)
-    if input_split_sizes is not None:
-        input_split_sizes = list(input_split_sizes)
+
+    if input_split_sizes is not None and len(input_split_sizes) > 0:
+        split_local_sizes = _resolve_split_sizes(
+            input_split_sizes, input_tensor._local_tensors
+        )
+    else:
+        split_local_sizes = None
 
     for group_offset in group_offsets:
         # For the tensors in this group [group_offset + r for r in ranks]
@@ -889,52 +901,36 @@ def _local_alltoall_base_(
         if not all(rank in output_tensor._local_tensors for rank in group_ranks):
             continue
 
-        for i, rank_i in enumerate(group_ranks):
-            # Split input tensor from rank_i according to input_split_sizes
-            rank_tensor = input_tensor._local_tensors[rank_i]
-
-            if input_split_sizes is not None and len(input_split_sizes) > 0:
-                # Split the input tensor
-                input_splits = torch.split(rank_tensor, input_split_sizes, dim=0)
+        # Split each rank's input along dim 0; rank_i's j-th chunk is sent to
+        # rank_j.
+        input_chunks: dict[int, tuple[torch.Tensor, ...]] = {}
+        for rank in group_ranks:
+            rank_tensor = input_tensor._local_tensors[rank]
+            if split_local_sizes is not None:
+                split_sizes = split_local_sizes[rank]
             else:
                 # No split sizes specified, split evenly
-                split_size = rank_tensor.size(0) // len(group_ranks)
-                input_splits = torch.split(rank_tensor, split_size, dim=0)
+                split_sizes = [rank_tensor.size(0) // len(group_ranks)] * len(
+                    group_ranks
+                )
+            input_chunks[rank] = torch.split(rank_tensor, split_sizes, dim=0)
 
-            # Send each split to the corresponding rank
-            for j, rank_j in enumerate(group_ranks):
-                if j < len(input_splits):
-                    split_tensor = input_splits[j]
-
-                    # Determine where to place this split in the output tensor
-                    if output_split_sizes is not None and len(output_split_sizes) > 0:
-                        # Calculate offset based on output split sizes
-                        output_offset = sum(output_split_sizes[:i]) if i > 0 else 0
-                        end_offset = (
-                            output_offset + output_split_sizes[i]
-                            if i < len(output_split_sizes)
-                            else output_tensor._local_tensors[rank_j].size(0)
-                        )
-                    else:
-                        # No output split sizes, use even splits
-                        split_size = output_tensor._local_tensors[rank_j].size(
-                            0
-                        ) // len(group_ranks)
-                        output_offset = i * split_size
-                        end_offset = min(
-                            (i + 1) * split_size,
-                            output_tensor._local_tensors[rank_j].size(0),
-                        )
-
-                    # Copy the split to the appropriate section of the output tensor
-                    output_section = output_tensor._local_tensors[rank_j][
-                        output_offset:end_offset
-                    ]
-                    if output_section.numel() > 0:
-                        # Reshape split_tensor to match output_section if necessary
-                        if split_tensor.size() != output_section.size():
-                            split_tensor = split_tensor.view(output_section.size())
-                        output_section.copy_(split_tensor)
+        # rank_j's output is the concatenation of the chunks addressed to it, in
+        # source rank order. Chunk sizes are dictated by the senders'
+        # input_split_sizes; in a consistent configuration (rank_i's
+        # input_split_sizes[j] == rank_j's output_split_sizes[i]) this layout
+        # matches output_split_sizes, so the latter need not be consulted.
+        for j, rank_j in enumerate(group_ranks):
+            received = torch.cat([input_chunks[rank_i][j] for rank_i in group_ranks])
+            rank_output = output_tensor._local_tensors[rank_j]
+            if received.size() != rank_output.size():
+                raise ValueError(
+                    f"all_to_all_single: output tensor on rank {rank_j} has shape "
+                    f"{tuple(rank_output.size())}, but the chunks sent to it total "
+                    f"{tuple(received.size())}; check that input_split_sizes and "
+                    f"output_split_sizes are consistent across ranks"
+                )
+            rank_output.copy_(received)
 
     work = FakeWork()
     work_so = Work.boxed(work)
