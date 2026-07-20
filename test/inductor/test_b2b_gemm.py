@@ -5,6 +5,7 @@ import unittest
 import torch
 from torch._dynamo.utils import counters
 from torch._inductor.runtime.benchmarking import benchmarker
+from torch.testing._internal.common_device_type import instantiate_device_type_tests
 from torch._inductor.test_case import run_tests, TestCase
 from torch._inductor.utils import run_and_get_code
 from torch.testing._internal.common_utils import skipIfXpu
@@ -330,6 +331,8 @@ class B2BGEMMTest(TestCase):
         # flaky test assertion: disabled
         # self.assertTrue(average_speedup > 1)
 
+
+instantiate_device_type_tests(B2BGEMMTest, globals())
 
 if __name__ == "__main__":
     if HAS_GPU:
