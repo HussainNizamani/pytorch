@@ -7021,6 +7021,36 @@ class Scheduler:
 
         return str(reasons)
 
+    def _reindex_consumer_for_index_inversion(
+        self,
+        producer_write: MemoryDep,
+        consumer_read: MemoryDep,
+        consumer_write: MemoryDep,
+        consumer: SchedulerNode,
+    ) -> _LoopStateSnapshot | None:
+        """Flatten an equal-numel layout consumer before index inversion."""
+        if (
+            consumer.is_reduction()
+            or producer_write.index == consumer_write.index
+            or producer_write.size == consumer_write.size
+            or consumer_read.size != consumer_write.size
+        ):
+            return None
+
+        flat_size = sympy_product(producer_write.size)
+        if not V.graph.sizevars.statically_known_equals(
+            sympy_product(consumer_read.size), flat_size
+        ) or not V.graph.sizevars.statically_known_equals(
+            sympy_product(consumer._sizes[0]), flat_size
+        ):
+            return None
+        if tuple(consumer._sizes[0]) == (flat_size,):
+            return None
+
+        snapshot = _LoopStateSnapshot.create((consumer,))
+        consumer.apply_loop_reindexing([flat_size])
+        return snapshot
+
     def shared_data_after_inverting_indexing(
         self, node1: BaseSchedulerNode, node2: BaseSchedulerNode
     ) -> int:
@@ -7049,8 +7079,7 @@ class Scheduler:
             return -1
         if not isinstance(node2.node, ir.ComputedBuffer):
             return -1
-        body = node2._body
-        if body is None:
+        if node2._body is None:
             return -1
 
         # Check for shared buffers between nodes
@@ -7090,6 +7119,22 @@ class Scheduler:
         node1_write = node1_writes[node2_read.name]
 
         if not isinstance(node1_write, MemoryDep):
+            return -1
+
+        reindex_snapshot = self._reindex_consumer_for_index_inversion(
+            node1_write, node2_read, node2_write, node2
+        )
+        if reindex_snapshot is not None:
+            score = self.shared_data_after_inverting_indexing(node1, node2)
+            if score < 0:
+                reindex_snapshot.restore()
+            return score
+
+        if not node2_write.is_contiguous():
+            return -1
+
+        body = node2._body
+        if body is None:
             return -1
 
         # We are checking for compatibility with the normalized node1 write
