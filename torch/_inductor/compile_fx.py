@@ -2895,6 +2895,15 @@ def compile_fx(
         torch._inductor.async_compile.AsyncCompile.wakeup()
 
     if config.cpp_wrapper or config.fx_wrapper:
+        if config.cpp_wrapper:
+            from torch.fx.experimental.proxy_tensor import _coor_enabled
+
+            if _coor_enabled():
+                raise RuntimeError(
+                    "compile-on-one-rank (device-as-parameter) is not supported with "
+                    "cpp_wrapper/AOTInductor: the device guard bakes the compile-time "
+                    "device index, which is not rank-portable."
+                )
         from torch._export.non_strict_utils import _fakify_script_objects
 
         cpp_wrapper_config = config.cpp_wrapper
