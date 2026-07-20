@@ -384,6 +384,7 @@ class VariableTracker(metaclass=VariableTrackerMeta):
         """
         if cache is None:
             cache = {}
+        from .hashable import HashableTracker
 
         worklist = [value]
         while worklist:
@@ -410,10 +411,15 @@ class VariableTracker(metaclass=VariableTrackerMeta):
                     and cur in side_effects.store_attr_mutations
                 ):
                     children.extend(side_effects.store_attr_mutations[cur].values())
+            elif isinstance(cur, HashableTracker):
+                children = [cur.vt]
             elif istype(cur, (list, tuple)):
                 children = list(cur)
             elif istype(cur, (dict, collections.OrderedDict)):
-                children = list(cur.values())
+                children = []
+                for key, value in cur.items():
+                    children.append(key)
+                    children.append(value)
             else:
                 continue
             worklist.extend(reversed(children))

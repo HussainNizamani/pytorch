@@ -8,6 +8,7 @@ from collections import OrderedDict
 import torch
 import torch._dynamo.test_case
 import torch._dynamo.testing
+from torch._dynamo.comptime import comptime
 from torch._dynamo.exc import Unsupported
 from torch._dynamo.testing import EagerAndRecordGraphs, normalize_gm
 from torch._dynamo.utils import counters
@@ -16,6 +17,26 @@ from torch.testing._internal.common_utils import (
     make_dynamo_test,
     parametrize,
 )
+
+
+_visit_capture: dict[str, list[object]] = {}
+
+
+def _capture_hashable_visit(ctx) -> None:
+    from torch._dynamo.variables.base import VariableTracker
+
+    tx = ctx._i_will_not_complain_if_bc_breaks_InstructionTranslator()
+    seen: list[object] = []
+
+    def visit(vt):
+        if vt.is_python_constant():
+            value = vt.as_python_constant()
+            if isinstance(value, (int, str)):
+                seen.append(value)
+
+    VariableTracker.visit(visit, tx.symbolic_locals["d"])
+    VariableTracker.visit(visit, tx.symbolic_locals["s"])
+    _visit_capture["values"] = seen
 
 
 class GeneratorTestsBase(torch._dynamo.test_case.TestCase):
@@ -1681,6 +1702,20 @@ class TestGeneratorClose(GeneratorTestsBase):
 
         t = torch.randn(3)
         self._compile_check(fn, args=(t,))
+
+    def test_visit_walks_hashable_dict_keys_and_set_elements(self):
+        _visit_capture.clear()
+
+        @torch.compile(backend="eager", fullgraph=True)
+        def fn(t):
+            d = {1: t, 2: t + 1}
+            s = {"a", "b"}
+            comptime(_capture_hashable_visit)
+            return t + len(d) + len(s)
+
+        t = torch.randn(3)
+        self.assertEqual(fn(t), t + 4)
+        self.assertCountEqual(_visit_capture["values"], [1, 2, "a", "b"])
 
 
 class TestGeneratorThrow(GeneratorTestsBase):

@@ -2600,6 +2600,42 @@ class ContextVarVariable(VariableTracker):
         return super().getattro_impl(tx, name)
 
 
+class ContextVarTokenVariable(VariableTracker):
+    def __init__(
+        self,
+        contextvar: "ContextVarVariable",
+        old_value: VariableTracker,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.contextvar = contextvar
+        self.old_value = old_value
+
+    def python_type(self) -> type:
+        return contextvars.Token
+
+    def getattro_impl(
+        self, tx: "InstructionTranslatorBase", name: str
+    ) -> "VariableTracker":
+        if name == "var":
+            return self.contextvar
+        if name == "old_value":
+            if self.contextvar.source is not None:
+                tx.output.current_tracer.traced_sources.add(self.contextvar.source)
+            if self.old_value.source is not None:
+                tx.output.current_tracer.traced_sources.add(self.old_value.source)
+            return self.old_value
+        return super().getattro_impl(tx, name)
+
+    def reconstruct(self, codegen: "PyCodegen") -> None:
+        if self.source is None:
+            raise AssertionError("ContextVarTokenVariable requires a source")
+        codegen(self.source)
+
+    def debug_repr(self) -> str:
+        return f"<Token var={self.contextvar.cv_obj!r} at 0x{id(self):x}>"
+
+
 class RandomClassVariable(VariableTracker):
     """random.Random"""
 

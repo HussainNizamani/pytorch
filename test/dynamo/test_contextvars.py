@@ -378,6 +378,86 @@ class TestContextVars(TestCase):
         self.assertEqual(results[0], x + 2)
         self.assertEqual(cnt.frame_count, 2)
 
+    def test_external_token_argument(self):
+        cv = contextvars.ContextVar("external_token_arg", default="root")
+        token = cv.set("outer")
+
+        try:
+
+            @torch.compile(backend="eager", fullgraph=True)
+            def fn(token):
+                return token
+
+            self.assertIs(fn(token), token)
+        finally:
+            cv.reset(token)
+
+    def test_external_token_var_attribute(self):
+        cv = contextvars.ContextVar("external_token_var", default="root")
+        token = cv.set("outer")
+
+        try:
+
+            @torch.compile(backend="eager", fullgraph=True)
+            def fn(token, x):
+                return x + (1 if token.var.name == "external_token_var" else 2)
+
+            self.assertEqual(fn(token, torch.tensor(0)), torch.tensor(1))
+        finally:
+            cv.reset(token)
+
+    def test_external_token_old_value_missing(self):
+        cv = contextvars.ContextVar("external_token_missing")
+        token = cv.set("inner")
+
+        try:
+
+            @torch.compile(backend="eager", fullgraph=True)
+            def fn(token, x):
+                return x + (1 if token.old_value is contextvars.Token.MISSING else 2)
+
+            self.assertEqual(fn(token, torch.tensor(0)), torch.tensor(1))
+        finally:
+            cv.reset(token)
+
+    def test_external_token_old_value(self):
+        cv = contextvars.ContextVar("external_token_old_value", default="root")
+        outer = cv.set(3)
+        token = cv.set("inner")
+
+        try:
+
+            @torch.compile(backend="eager", fullgraph=True)
+            def fn(token, x):
+                return x + token.old_value
+
+            self.assertEqual(fn(token, torch.tensor(1)), torch.tensor(4))
+        finally:
+            cv.reset(token)
+            cv.reset(outer)
+
+    def test_external_token_old_value_recompiles_on_change(self):
+        cv = contextvars.ContextVar("external_token_old_value_cache", default="root")
+        cnt = CompileCounter()
+
+        def make_token(old_value):
+            outer = cv.set(old_value)
+            token = cv.set("inner")
+            cv.reset(token)
+            cv.reset(outer)
+            return token
+
+        token1 = make_token(1)
+        token2 = make_token(2)
+
+        @torch.compile(backend=cnt)
+        def fn(token, x):
+            return x + token.old_value
+
+        self.assertEqual(fn(token1, torch.tensor(0)), torch.tensor(1))
+        self.assertEqual(fn(token2, torch.tensor(0)), torch.tensor(2))
+        self.assertEqual(cnt.frame_count, 2)
+
 
 if __name__ == "__main__":
     run_tests()
