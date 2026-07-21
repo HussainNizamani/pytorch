@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import unittest
 from functools import partial
 from typing import Any, cast
 
 import torch
 from torch._library.utils import fill_defaults
+from torch._subclasses.fake_tensor import FakeTensorMode
 from torch.distributed._local_tensor import LocalIntNode, LocalTensor, LocalTensorMode
 from torch.distributed._stateful_rng import (
     _flatten_shard_metadata,
@@ -20,6 +22,7 @@ from torch.distributed._stateful_rng import (
 )
 from torch.distributed.checkpoint import CheckpointableTensor
 from torch.distributed.tensor.placement_types import _StridedShard
+from torch.fx.experimental.symbolic_shapes import ShapeEnv
 from torch.testing._internal.common_utils import run_tests, TEST_CUDA, TestCase
 from torch.utils._python_dispatch import TorchDispatchMode
 
@@ -944,6 +947,48 @@ class TestPhiloxDistributionShardsOp(TestCase):
                         kind,
                         params,
                     )
+
+    def test_symbolic_metadata_meta_and_fake(self):
+        self.assertIn(
+            "SymInt[] global_shape",
+            str(torch.ops.aten._philox_distribution_shards_.default._schema),
+        )
+
+        for device in ("meta", "cuda"):
+            with self.subTest(device=device):
+                shape_env = ShapeEnv()
+                global_size = shape_env.create_unbacked_symint()
+                local_size = shape_env.create_unbacked_symint()
+                context = (
+                    FakeTensorMode(shape_env=shape_env)
+                    if device == "cuda"
+                    else contextlib.nullcontext()
+                )
+                with context:
+                    result = torch.empty(local_size, device=device)
+                    returned = self._run(
+                        result,
+                        [global_size],
+                        [0],
+                        [0],
+                        [local_size],
+                        1,
+                    )
+
+                self.assertIs(returned, result)
+                self.assertIsNone(global_size.node.maybe_as_int())
+                self.assertIsNone(local_size.node.maybe_as_int())
+
+    def test_meta_rejects_unsupported_dtype(self):
+        with self.assertRaisesRegex(RuntimeError, "unsupported dtype"):
+            self._run(
+                torch.empty(1, device="meta", dtype=torch.float8_e4m3fn),
+                [1],
+                [0],
+                [0],
+                [1],
+                1,
+            )
 
 
 if __name__ == "__main__":

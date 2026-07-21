@@ -98,7 +98,7 @@ def _is_supported_stateful_rng_op(
 
 
 def _flatten_shard_metadata(
-    global_shape: tuple[int, ...],
+    global_shape: tuple[int | torch.SymInt, ...],
     global_offsets: tuple[tuple[int | torch.SymInt, ...], ...],
     local_offsets: tuple[tuple[int | torch.SymInt, ...], ...],
     local_sizes: tuple[tuple[int | torch.SymInt, ...], ...],
@@ -132,7 +132,7 @@ def _flatten_shard_metadata(
 @maybe_run_for_local_tensor
 def _run_stateful_rng_op_rankwise(
     tensor: torch.Tensor,
-    global_shape: list[int],
+    global_shape: list[int | torch.SymInt],
     global_offsets: list[int | torch.SymInt],
     local_offsets: list[int | torch.SymInt],
     local_sizes: list[int | torch.SymInt],
@@ -165,7 +165,7 @@ def _run_stateful_rng_op(
     op_call: torch._ops.OpOverload,
     args: tuple[Any, ...],
     kwargs: dict[str, Any] | None,
-    global_shape: tuple[int, ...],
+    global_shape: tuple[int | torch.SymInt, ...],
     global_offsets: tuple[tuple[int | torch.SymInt, ...], ...],
     local_offsets: tuple[tuple[int | torch.SymInt, ...], ...],
     local_sizes: tuple[tuple[int | torch.SymInt, ...], ...],

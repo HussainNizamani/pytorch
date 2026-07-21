@@ -662,27 +662,26 @@ def meta_philox_uniform_(self, key, low=0.0, high=1.0):
     return self
 
 
-def _philox_rectangles_overlap(
+def _philox_rectangles_do_not_overlap(
     first_offset,
     first_size,
     second_offset,
     second_size,
 ):
-    if math.prod(first_size) == 0 or math.prod(second_size) == 0:
-        return False
-    if not first_size:
-        return True
-    return all(
-        first_start < second_start + second_length
-        and second_start < first_start + first_length
-        for first_start, first_length, second_start, second_length in zip(
-            first_offset,
-            first_size,
-            second_offset,
-            second_size,
-            strict=True,
+    separated = (math.prod(first_size) == 0) | (math.prod(second_size) == 0)
+    for first_start, first_length, second_start, second_length in zip(
+        first_offset,
+        first_size,
+        second_offset,
+        second_size,
+        strict=True,
+    ):
+        separated = (
+            separated
+            | (first_start >= second_start + second_length)
+            | (second_start >= first_start + first_length)
         )
-    )
+    return separated
 
 
 def _check_philox_shards_args(
@@ -764,17 +763,17 @@ def _check_philox_shards_args(
             )
         ):
             torch._check(
-                g_offset >= 0
-                and size >= 0
-                and size <= global_dim
-                and g_offset <= global_dim - size,
+                (g_offset >= 0)
+                & (size >= 0)
+                & (size <= global_dim)
+                & (g_offset <= global_dim - size),
                 lambda: (
                     f"{op_name}: global shard {chunk} dimension {dim} is outside "
                     "global_shape"
                 ),
             )
             torch._check(
-                l_offset >= 0 and size <= local_dim and l_offset <= local_dim - size,
+                (l_offset >= 0) & (size <= local_dim) & (l_offset <= local_dim - size),
                 lambda: (
                     f"{op_name}: local shard {chunk} dimension {dim} is outside "
                     "self shape"
@@ -800,7 +799,7 @@ def _check_philox_shards_args(
         for first in range(len(rectangles)):
             for second in range(first + 1, len(rectangles)):
                 torch._check(
-                    not _philox_rectangles_overlap(
+                    _philox_rectangles_do_not_overlap(
                         *rectangles[first], *rectangles[second]
                     ),
                     lambda: (
@@ -816,13 +815,6 @@ def _check_philox_shards_args(
             f"described {mapped_numel} of {self.numel()} elements"
         ),
     )
-
-    if torch._debug_has_internal_overlap(self) == 1:
-        raise RuntimeError(
-            "unsupported operation: more than one element of the written-to tensor "
-            "refers to a single memory location. Please clone() the tensor before "
-            "performing the operation."
-        )
 
 
 def _check_philox_normal_std(std):

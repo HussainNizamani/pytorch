@@ -785,16 +785,20 @@ Tensor& _philox_normal_cuda_(
   return self;
 }
 
-Tensor& _philox_distribution_shards_cuda_(
+Tensor& _philox_distribution_shards_symint_cuda_(
     Tensor& self,
-    IntArrayRef global_shape,
-    IntArrayRef global_offsets,
-    IntArrayRef local_offsets,
-    IntArrayRef local_sizes,
+    c10::SymIntArrayRef global_shape,
+    c10::SymIntArrayRef global_offsets,
+    c10::SymIntArrayRef local_offsets,
+    c10::SymIntArrayRef local_sizes,
     int64_t chunk_count,
     int64_t kind,
     ArrayRef<Scalar> params,
     std::optional<Generator> generator) {
+  const auto global_shape_int = C10_AS_INTARRAYREF_SLOW_ALLOC(global_shape);
+  const auto global_offsets_int = C10_AS_INTARRAYREF_SLOW_ALLOC(global_offsets);
+  const auto local_offsets_int = C10_AS_INTARRAYREF_SLOW_ALLOC(local_offsets);
+  const auto local_sizes_int = C10_AS_INTARRAYREF_SLOW_ALLOC(local_sizes);
   const auto distribution_kind = static_cast<PhiloxDistributionKind>(kind);
   TORCH_CHECK(
       distribution_kind == PhiloxDistributionKind::Normal ||
@@ -831,10 +835,10 @@ Tensor& _philox_distribution_shards_cuda_(
             };
             distribution_shards<scalar_t>(
                 self,
-                global_shape,
-                global_offsets,
-                local_offsets,
-                local_sizes,
+                global_shape_int,
+                global_offsets_int,
+                local_offsets_int,
+                local_sizes_int,
                 chunk_count,
                 generator,
                 CurandNormalSampler<scalar_t>{},
@@ -859,10 +863,10 @@ Tensor& _philox_distribution_shards_cuda_(
             };
             distribution_shards<scalar_t>(
                 self,
-                global_shape,
-                global_offsets,
-                local_offsets,
-                local_sizes,
+                global_shape_int,
+                global_offsets_int,
+                local_offsets_int,
+                local_sizes_int,
                 chunk_count,
                 generator,
                 CurandUniformSampler<scalar_t>{},
